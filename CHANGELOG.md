@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-07-04
+
+### Changed
+- CI: verified end-to-end PyPI publish pipeline (added `PYPI_TOKEN` repository secret). No code changes from 0.2.1; this release is the same artifact re-tagged so the CI publishing path runs cleanly. TestPyPI publish still requires OIDC trusted publishing configuration to be set up on test.pypi.org — left as a follow-up.
+
 ## [0.2.1] — 2026-07-03
 
 ### Fixed
