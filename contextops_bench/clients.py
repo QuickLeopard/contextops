@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Iterator
 
 import urllib.request
 import urllib.error
@@ -99,7 +98,7 @@ class OllamaClient(BaseHTTPClient):
             "max_tokens": max_tokens,
         }
         raw = self._post("/chat/completions", payload)
-        latency = (time.time() - t0) * 1000
+        raw["_latency_ms"] = (time.time() - t0) * 1000
 
         choice = raw.get("choices", [{}])[0]
         usage = raw.get("usage", {}) or {}
@@ -159,7 +158,7 @@ class OpenRouterClient(BaseHTTPClient):
             "max_tokens": max_tokens,
         }
         raw = self._post("/chat/completions", payload)
-        latency = (time.time() - t0) * 1000
+        raw["_latency_ms"] = (time.time() - t0) * 1000
 
         choice = raw.get("choices", [{}])[0]
         usage = raw.get("usage", {}) or {}
