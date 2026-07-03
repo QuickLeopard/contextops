@@ -3,8 +3,8 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "contextops"
-version = "0.2.3"
+name = "contextops-tool"
+version = "0.3.0"
 description = "Cache-aware prompt structure optimizer + local cost/usage logger for LLM apps."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -37,5 +37,5 @@ We will:
 
 - Set `chmod 600 ~/.contextops/calls.db` if you log sensitive prompts.
 - Use `EchoJudge` in CI; never run real judges against untrusted input.
-- Pin ContextOps in production: `contextops==0.2.0` not `contextops>=0.2`.
+- Pin ContextOps in production: `contextops-tool==0.3.0` not `contextops-tool>=0.3`.
 - Review the `metadata` field of every `CallLog` before sharing logs.

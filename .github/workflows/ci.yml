@@ -79,7 +79,7 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/contextops
+      url: https://test.pypi.org/p/contextops-tool
     permissions:
       id-token: write
     steps:
@@ -100,7 +100,7 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     environment:
       name: pypi
-      url: https://pypi.org/p/contextops
+      url: https://pypi.org/p/contextops-tool
     permissions:
       id-token: write
     steps:

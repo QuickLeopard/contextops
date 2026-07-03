@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-04
+
+### Changed
+- **Package renamed on PyPI:** the project is now published as `contextops-tool` instead of `contextops`. The previous name was already registered on PyPI by a different project (Abhijeet Baug's "deterministic context linter", latest 0.3.2), so we couldn't keep publishing under it. **Install:** `pip install contextops-tool`. The CLI command (`contextops optimize / stats / recent / compare / eval / reset`) and internal Python module imports (`from contextops import ...`) are unchanged for discoverability. If a user has both `contextops` and `contextops-tool` installed, the `contextops` CLI will be claimed by whichever was installed last — recommend uninstalling the other `contextops` to avoid the script-name collision.
+
 ## [0.2.3] — 2026-07-04
 
 ### Changed
-- CI: verified end-to-end PyPI publish pipeline (added `PYPI_TOKEN` repository secret). No code changes from 0.2.1; this release is the same artifact re-tagged so the CI publishing path runs cleanly. TestPyPI publish still requires OIDC trusted publishing configuration to be set up on test.pypi.org — left as a follow-up.
+- CI: end-to-end PyPI publish verified — added `PYPI_TOKEN` repository secret. Same artifact as 0.2.1; this release was a re-tag to confirm the CI publishing path works. Note: PyPI later returned 403 because the `contextops` package name was already owned by a different project, which led to the rename in 0.3.0.
 
 ## [0.2.1] — 2026-07-03
 

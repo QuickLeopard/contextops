@@ -6,7 +6,7 @@ bug fixes, new features, docs, examples, benchmarks, and discussions.
 ## Quick start
 
 ```bash
-git clone https://github.com/<your-org>/contextops.git
+git clone https://github.com/QuickLeopard/contextops.git
 cd contextops
 python -m venv .venv
 source .venv/bin/activate

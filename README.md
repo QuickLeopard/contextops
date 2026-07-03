@@ -1,8 +1,8 @@
 # ContextOps
 
-[![CI](https://github.com/contextops/contextops/actions/workflows/ci.yml/badge.svg)](https://github.com/contextops/contextops/actions)
-[![PyPI](https://img.shields.io/pypi/v/contextops.svg)](https://pypi.org/project/contextops/)
-[![Python](https://img.shields.io/pypi/pyversions/contextops.svg)](https://pypi.org/project/contextops/)
+[![CI](https://github.com/QuickLeopard/contextops/actions/workflows/ci.yml/badge.svg)](https://github.com/QuickLeopard/contextops/actions)
+[![PyPI](https://img.shields.io/pypi/v/contextops-tool.svg)](https://pypi.org/project/contextops-tool/)
+[![Python](https://img.shields.io/pypi/pyversions/contextops-tool.svg)](https://pypi.org/project/contextops-tool/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Cache-aware prompt structure optimizer + LLM-as-judge eval + local cost/usage logger.**
@@ -13,14 +13,14 @@ variable content (query, history) sits at the bottom — maximizing cache
 hit rate on Anthropic / OpenAI / DeepSeek / any provider that does
 prefix caching.
 
-No cloud, no SaaS, no SDK lock-in. Just `pip install contextops` and go.
+No cloud, no SaaS, no SDK lock-in. Just `pip install contextops-tool` and go.
 
 ---
 
 ## ⚡ Quickstart
 
 ```bash
-pip install contextops
+pip install contextops-tool
 ```
 
 ```python
@@ -99,22 +99,22 @@ Estimated impact on a typical workload:
 
 ```bash
 # Core (optimizer + logger + eval + CLI)
-pip install contextops
+pip install contextops-tool
 
 # With LiteLLM auto-callback for real LLM logging
-pip install "contextops[integrations]"
+pip install "contextops-tool[integrations]"
 
 # With dev tooling (pytest, ruff, mypy)
-pip install "contextops[dev]"
+pip install "contextops-tool[dev]"
 
 # Everything
-pip install "contextops[all]"
+pip install "contextops-tool[all]"
 ```
 
 From source:
 
 ```bash
-git clone https://github.com/contextops/contextops.git
+git clone https://github.com/QuickLeopard/contextops.git
 cd contextops
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,integrations]"
@@ -138,7 +138,7 @@ python --version   # should print 3.12.x
 If you want a fully automated setup, run the bootstrap script after cloning:
 
 ```bash
-git clone https://github.com/contextops/contextops.git
+git clone https://github.com/QuickLeopard/contextops.git
 cd contextops
 ./scripts/bootstrap.sh   # installs Python, creates venv, runs tests + smoke
 ```
