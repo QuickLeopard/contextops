@@ -1,0 +1,6 @@
+{
+  "system": "You are a helpful assistant. Answer the user's question based on the provided context.",
+  "documents": "{CONTEXT}",
+  "query": "{QUERY}",
+  "model": "gpt-4o-mini"
+}

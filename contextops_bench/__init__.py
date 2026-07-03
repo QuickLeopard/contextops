@@ -1,0 +1,1 @@
+"""Empty init — bench is a script package, not importable."""

@@ -1,0 +1,64 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+*.egg
+.installed.cfg
+*.egg-info
+MANIFEST
+
+# --- Virtual envs ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Tooling caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.cache
+*.cover
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- ContextOps runtime data ---
+.contextops/
+*.db
+*.db-journal
+contextops.db
+
+# --- Bench outputs (uncomment to commit sample CSVs) ---
+# bench/results/*.csv
+# bench/results/*.summary.json
+bench/results/
+
+# --- Secrets / env ---
+.env
+.env.local
+*.pem
+*.key

@@ -1,0 +1,5 @@
+{"query": "What is the capital of France?", "expected": "Paris", "context": "France is a country in Europe. Its capital is Paris, known for the Eiffel Tower."}
+{"query": "Who wrote Romeo and Juliet?", "expected": "William Shakespeare", "context": "Romeo and Juliet is a tragedy written by William Shakespeare early in his career."}
+{"query": "What is the boiling point of water at sea level?", "expected": "100 degrees Celsius", "context": "Water boils at 100 degrees Celsius (212°F) at sea level atmospheric pressure."}
+{"query": "Which planet is known as the Red Planet?", "expected": "Mars", "context": "Mars is often called the Red Planet due to its reddish appearance from iron oxide on its surface."}
+{"query": "What programming language is named after a snake?", "expected": "Python", "context": "Python is a high-level programming language named after the Monty Python comedy group, not the snake."}

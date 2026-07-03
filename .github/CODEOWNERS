@@ -1,0 +1,13 @@
+# Code owners — these folks get auto-assigned to PRs touching these paths.
+
+# Default: maintainers
+*                       @contextops/maintainers
+
+# Bench harness needs infra review
+/contextops_bench/      @contextops/maintainers
+/.github/workflows/     @contextops/maintainers
+
+# Public API needs extra eyes
+/contextops/__init__.py @contextops/maintainers
+/contextops/models.py   @contextops/maintainers
+/pyproject.toml         @contextops/maintainers
