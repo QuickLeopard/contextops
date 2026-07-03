@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 import csv
-import json
 import statistics
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from contextops.models import HistoryMessage, Prompt
-from contextops.optimizer import optimize, reorder, count_tokens
-from contextops_bench.clients import BenchResult, CompletionResponse, get_client
-from contextops_bench.prompt_factory import generate_many
+from contextops.models import Prompt
+from contextops.optimizer import reorder, count_tokens
+from contextops_bench.clients import BenchResult, CompletionResponse
 
 
 def _render_prompt(p: Prompt) -> tuple[str, list[str]]:

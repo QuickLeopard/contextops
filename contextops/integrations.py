@@ -6,7 +6,6 @@ This is intentionally opt-in. Install with:
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timezone
 from typing import Any
 

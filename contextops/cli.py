@@ -6,7 +6,6 @@ Built with Click + Rich for nice tables.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import click
@@ -21,7 +20,7 @@ from rich.progress import (
 from rich.table import Table
 
 from contextops import __version__
-from contextops.clients import EchoJudge, LiteLLMJudge, default_judge
+from contextops.clients import EchoJudge, LiteLLMJudge
 from contextops.dataset import DatasetItem, load as load_dataset
 from contextops.eval import compare as compare_prompts, evaluate_ab
 from contextops.judge import list_metrics
@@ -250,7 +249,7 @@ def eval(
     if isinstance(judge, LiteLLMJudge):
         console.print(f"[dim]Using real judge: {judge_model}[/dim]")
     else:
-        console.print(f"[yellow]Using offline echo judge (no API calls)[/yellow]")
+        console.print("[yellow]Using offline echo judge (no API calls)[/yellow]")
 
     run_fn = _pick_run_fn(run_fn_choice, dataset)
 

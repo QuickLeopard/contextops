@@ -1,9 +1,6 @@
 """Tests for the bench framework. Uses EchoClient — no network."""
 
 import csv
-import statistics
-import tempfile
-from pathlib import Path
 
 from contextops_bench.clients import EchoClient, get_client
 from contextops_bench.prompt_factory import EDGE_CASES, generate_many

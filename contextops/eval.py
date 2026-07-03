@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from contextops.clients import default_judge
-from contextops.dataset import DatasetItem, iter_batches
-from contextops.judge import JudgeClient, list_metrics, score_many
+from contextops.dataset import DatasetItem
+from contextops.judge import JudgeClient, score_many
 from contextops.models import OptimizationResult, Prompt
 from contextops.optimizer import optimize, reorder
 from contextops.report import a_b_compare, aggregate, render_table
