@@ -75,6 +75,167 @@ def test_get_client_factory():
     raise AssertionError("should have raised")
 
 
+def test_openai_direct_factory():
+    """OpenAIDirectClient is reachable via 'direct_openai' or 'openai'."""
+    import os
+    os.environ["OPENAI_API_KEY"] = "sk-test-fake-key-for-unittest"
+    try:
+        client = get_client("direct_openai")
+        from contextops_bench.clients import OpenAIDirectClient
+        assert isinstance(client, OpenAIDirectClient)
+        assert client.base_url == "https://api.openai.com/v1"
+        # supports_split_messages = False: OpenAI uses messages[] with system as a message
+        assert client.supports_split_messages is False
+    finally:
+        os.environ.pop("OPENAI_API_KEY", None)
+
+
+def test_openai_direct_requires_api_key():
+    """OpenAIDirectClient must raise ValueError without an API key."""
+    import os
+    os.environ.pop("OPENAI_API_KEY", None)
+    from contextops_bench.clients import OpenAIDirectClient
+    try:
+        OpenAIDirectClient()
+    except ValueError as e:
+        assert "OPENAI_API_KEY" in str(e)
+        return
+    raise AssertionError("should have raised ValueError for missing OPENAI_API_KEY")
+
+
+def test_openai_direct_resolves_models():
+    """OpenAIDirectClient._resolve_model handles both 'openai/foo' and bare 'foo'."""
+    from contextops_bench.clients import OpenAIDirectClient
+    client = OpenAIDirectClient(api_key="sk-test")
+    assert client._resolve_model("openai/gpt-4o") == "gpt-4o"
+    assert client._resolve_model("gpt-4o-mini") == "gpt-4o-mini"
+    assert client._resolve_model("gpt-4.1") == "gpt-4.1"
+
+
+def test_openai_direct_cache_read_discount():
+    """OpenAI cached tokens cost 50% of input — verify the cost formula."""
+    from contextops_bench.clients import OpenAIDirectClient
+    client = OpenAIDirectClient(api_key="sk-test")
+    # Send 1000 prompt tokens, of which 800 came from cache.
+    # Effective cost: 200 * input + 800 * input * 0.5 + completion * output
+    # For gpt-4o-mini: input=$0.15/M, output=$0.60/M.
+    # Build a fake response inline by calling complete() with a mocked transport.
+    import contextops_bench.clients as c_mod
+
+    def fake_post(self, path, payload):
+        return {
+            "model": "gpt-4o-mini",
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {
+                "prompt_tokens": 1000,
+                "completion_tokens": 50,
+                "prompt_tokens_details": {"cached_tokens": 800},
+            },
+        }
+
+    orig_post = c_mod.BaseHTTPClient._post
+    c_mod.BaseHTTPClient._post = fake_post
+    try:
+        resp = client.complete(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "hello world"}],
+        )
+        assert resp.cached_tokens == 800
+        # Expected: uncached=200, cached=800
+        # Cost uncached: 200/1e6 * 0.15 = 0.00003
+        # Cost cached:   800/1e6 * 0.15 * 0.5 = 0.00006
+        # Cost output:   50/1e6  * 0.60 = 0.00003
+        # Total:         0.00012
+        assert abs(resp.cost_usd - 0.00012) < 1e-7
+    finally:
+        c_mod.BaseHTTPClient._post = orig_post
+
+
+def test_google_direct_factory():
+    """GoogleDirectClient is reachable via 'direct_google' or 'google'."""
+    import os
+    os.environ["GOOGLE_API_KEY"] = "AIzaSyTestFakeKeyForUnittest"
+    try:
+        client = get_client("direct_google")
+        from contextops_bench.clients import GoogleDirectClient
+        assert isinstance(client, GoogleDirectClient)
+        assert client.base_url == "https://generativelanguage.googleapis.com/v1beta"
+        # supports_split_messages = True: Google uses systemInstruction top-level field
+        assert client.supports_split_messages is True
+    finally:
+        os.environ.pop("GOOGLE_API_KEY", None)
+
+
+def test_google_direct_requires_api_key():
+    """GoogleDirectClient must raise ValueError without an API key."""
+    import os
+    os.environ.pop("GOOGLE_API_KEY", None)
+    os.environ.pop("GEMINI_API_KEY", None)
+    from contextops_bench.clients import GoogleDirectClient
+    try:
+        GoogleDirectClient()
+    except ValueError as e:
+        assert "GOOGLE_API_KEY" in str(e) or "GEMINI_API_KEY" in str(e)
+        return
+    raise AssertionError("should have raised ValueError for missing GOOGLE_API_KEY")
+
+
+def test_google_direct_resolves_models():
+    """GoogleDirectClient._resolve_model handles 'google/', 'gemini/', and bare names."""
+    from contextops_bench.clients import GoogleDirectClient
+    client = GoogleDirectClient(api_key="test")
+    assert client._resolve_model("google/gemini-2.5-flash") == "gemini-2.5-flash"
+    assert client._resolve_model("gemini-2.5-pro") == "gemini-2.5-pro"
+    assert client._resolve_model("gemini-2.5-flash-lite") == "gemini-2.5-flash-lite"
+
+
+def test_google_direct_cache_read_discount():
+    """Gemini cached tokens cost 10% of input — verify the cost formula."""
+    from contextops_bench.clients import GoogleDirectClient
+    import contextops_bench.clients as c_mod
+
+    def fake_urlopen(req, timeout):
+        class FakeResp:
+            def __init__(self):
+                self.body = (
+                    b'{"candidates":[{"content":{"parts":[{"text":"ok"}]}}],'
+                    b'"usageMetadata":{"promptTokenCount":1000,'
+                    b'"candidatesTokenCount":50,'
+                    b'"cachedContentTokenCount":800}}'
+                )
+
+            def read(self):
+                return self.body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        return FakeResp()
+
+    orig_urlopen = c_mod.urllib.request.urlopen
+    c_mod.urllib.request.urlopen = fake_urlopen
+    try:
+        client = GoogleDirectClient(api_key="test")
+        resp = client.complete(
+            model="gemini-2.5-flash",
+            messages=[{"role": "user", "content": "hello"}],
+            system="system prompt",
+        )
+        assert resp.cached_tokens == 800
+        # For gemini-2.5-flash: input=$0.30/M, output=$2.50/M, cache_read_mult=0.10.
+        # Expected: uncached=200, cached=800
+        # Cost uncached: 200/1e6 * 0.30 = 0.00006
+        # Cost cached:   800/1e6 * 0.30 * 0.10 = 0.000024
+        # Cost output:   50/1e6  * 2.50 = 0.000125
+        # Total:         0.000209
+        assert abs(resp.cost_usd - 0.000209) < 1e-7
+    finally:
+        c_mod.urllib.request.urlopen = orig_urlopen
+
+
 def test_run_batch_alternates_optimized_baseline():
     prompts = list(generate_many(n=10, seed=42))
     client = EchoClient()

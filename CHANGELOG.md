@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `bench/__main__.py`: `cloud` and `local` subcommands now honor `--label` when set (previously hard-coded the label, making the CLI flag a silent no-op). If `--label` is set with a single model, it's used verbatim; with multiple models, the model name is appended to keep artifacts unique.
 
+### Added
+- **Direct OpenAI provider** (`contextops_bench.clients.OpenAIDirectClient`, alias `direct_openai` / `openai`): bypasses OpenRouter entirely. OpenAI's prompt caching is AUTOMATIC — no `cache_control` markers, just `usage.prompt_tokens_details.cached_tokens` reporting which prompt tokens came from cache at 50% off input. This is the opposite cache shape from Anthropic (which we already support via `direct_anthropic` and `direct_zen`) — useful for users who need to verify both flavors of cache mechanics in one tool. Auth: `OPENAI_API_KEY` env var.
+- **Direct Google Gemini provider** (`contextops_bench.clients.GoogleDirectClient`, alias `direct_google` / `google`): bypasses OpenRouter entirely, talks to `generativelanguage.googleapis.com` (Google AI Studio) directly. Gemini's caching is also IMPLICIT (`cachedContentTokenCount` in `usageMetadata`) — no markers, no separate `system` message, just a `systemInstruction` top-level field that maps from the runner's `system=` kwarg. Cache reads cost 10% of input on the paid tier. Auth: `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) env var. Supports `--preset-agent realistic` end-to-end (path: `bench cloud --provider direct_google --model google/gemini-2.5-flash ...`).
+- Together with the existing `direct_zen` and `direct_anthropic` providers, the bench now has dedicated measurement paths for the four major cache mechanics flavors: Anthropic-style explicit (`cache_control: ephemeral`), OpenAI-style automatic-with-discount, Gemini-style automatic-with-implicit-system-field, and Zen's pass-through (same shape as Anthropic, different URL).
+- 8 new unit tests in `tests/test_bench_unit.py` cover: factory wiring, missing-API-key errors, model name resolution (with/without prefixes), and cache-read cost discount math (mocked transport).
+
 ## [0.3.0] — 2026-07-04
 
 ### Changed

@@ -445,6 +445,274 @@ class ZenDirectClient(BaseHTTPClient):
         )
 
 
+class OpenAIDirectClient(BaseHTTPClient):
+    """OpenAI native API at https://api.openai.com/v1/chat/completions.
+
+    OpenAI's prompt caching is AUTOMATIC — there are no explicit `cache_control`
+    markers. Any prompt prefix >= 1024 tokens (and matching the prefix of a recent
+    call within the last few minutes) gets served from cache at 50% off input cost,
+    with the cached tokens reported in `usage.prompt_tokens_details.cached_tokens`.
+
+    This is the OPPOSITE shape from Anthropic:
+      - Anthropic: explicit cache_control markers, cache_creation vs cache_read costs.
+      - OpenAI:    no markers, no cache_write event, just a discount on cached reads.
+
+    If you ask the runner to put stable sections in a `system=` field, this client
+    pre-pends them to `messages[]` (OpenAI doesn't take a top-level `system` field).
+
+    Auth: `OPENAI_API_KEY` env var (or pass `api_key=...`).
+
+    Request format:
+      POST /v1/chat/completions
+      Headers: Authorization: Bearer <OPENAI_API_KEY>
+      Body: standard OpenAI chat completions shape (messages[], temperature, ...)
+
+    Response usage:
+      - prompt_tokens, completion_tokens (totals)
+      - prompt_tokens_details.cached_tokens (how many input tokens were cache hits)
+    """
+
+    PROVIDER = "direct_openai"
+    supports_split_messages: bool = False  # OpenAI uses single messages[] payload
+
+    MODEL_MAP = {
+        "openai/gpt-4o-mini": "gpt-4o-mini",
+        "openai/gpt-4o": "gpt-4o",
+        "openai/gpt-4.1-mini": "gpt-4.1-mini",
+        "openai/gpt-4.1": "gpt-4.1",
+        "openai/o4-mini": "o4-mini",
+    }
+
+    PRICING = {
+        # $/M tokens (input, output). Cache reads are 50% of input (OpenAI's discount).
+        # Source: openai.com/pricing — verify quarterly.
+        "gpt-4o-mini": (0.15, 0.60),
+        "gpt-4o": (2.50, 10.00),
+        "gpt-4.1-mini": (0.40, 1.60),
+        "gpt-4.1": (2.00, 8.00),
+        "o4-mini": (1.10, 4.40),
+    }
+
+    # OpenAI's automatic cache read discount: 50% off input cost.
+    # No separate cache_write event (caching is automatic and free).
+    CACHE_READ_MULTIPLIER = 0.5
+
+    def __init__(self, api_key: str | None = None, **kwargs):
+        api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            raise ValueError(
+                "OpenAIDirectClient requires OPENAI_API_KEY env var or api_key arg. "
+                "Get a key at https://platform.openai.com/api-keys"
+            )
+        super().__init__("https://api.openai.com/v1", api_key, **kwargs)
+
+    def _resolve_model(self, model: str) -> str:
+        if model in self.MODEL_MAP:
+            return self.MODEL_MAP[model]
+        if model.startswith("openai/"):
+            return model[len("openai/"):]
+        return model
+
+    def complete(self, *, model: str, messages: list[dict],
+                 temperature: float = 0.0, max_tokens: int = 64,
+                 system: str | None = None) -> CompletionResponse:
+        t0 = time.time()
+        native_model = self._resolve_model(model)
+
+        # OpenAI doesn't take a top-level `system` field; prepend it as a
+        # system message if the runner asked for it.
+        if system:
+            messages = [{"role": "system", "content": system}] + list(messages)
+
+        payload: dict = {
+            "model": native_model,
+            "messages": list(messages),
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        raw = self._post("/chat/completions", payload)
+        raw["_latency_ms"] = (time.time() - t0) * 1000
+
+        choice = raw.get("choices", [{}])[0]
+        usage = raw.get("usage", {}) or {}
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        # OpenAI surfaces cache hits in usage.prompt_tokens_details.cached_tokens.
+        cached_tokens = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+
+        pricing = self.PRICING.get(native_model, (1.0, 4.0))
+        input_cost, output_cost = pricing
+        non_cached_input = max(0, prompt_tokens - cached_tokens)
+        cost = (
+            (non_cached_input / 1_000_000) * input_cost
+            + (cached_tokens / 1_000_000) * input_cost * self.CACHE_READ_MULTIPLIER
+            + (completion_tokens / 1_000_000) * output_cost
+        )
+
+        return CompletionResponse(
+            text=choice.get("message", {}).get("content", ""),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_tokens=cached_tokens,
+            cost_usd=cost,
+            model=raw.get("model", native_model),
+            raw=raw,
+        )
+
+
+class GoogleDirectClient(BaseHTTPClient):
+    """Google Gemini native API at generativelanguage.googleapis.com (Google AI Studio).
+
+    Gemini's prompt caching is IMPLICIT — there are no explicit `cache_control`
+    markers. Prompts above the tier's automatic-caching threshold get prefix-
+    matched automatically:
+      - Free tier: ~32,768 tokens
+      - Paid tier (Gemini API key with billing): ~1,024 tokens
+      - Vertex AI with explicit `cachedContent`: user-managed, any size
+
+    We use the AUTOMATIC path: simpler, matches what most teams actually do.
+    Cached tokens come back in `usageMetadata.cachedContentTokenCount`. Cache
+    reads cost ~10% of input on the paid tier (matches Gemini 2.5 pricing).
+
+    Gemini's request format is structurally different from both OpenAI and
+    Anthropic — `contents[]` (with `role` and `parts`) replaces `messages[]`,
+    and `systemInstruction` is a top-level field (similar to Anthropic's
+    `system` field) rather than a system message. To use the runner's
+    split-message optimization path, this client DOES support `system=` and
+    maps it to `systemInstruction` in the payload.
+
+    Auth: `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) env var.
+
+    Request format:
+      POST /v1beta/models/{model}:generateContent?key=<API_KEY>
+      Headers: Content-Type: application/json
+      Body: {
+        "contents": [{"role": "user"|"model", "parts": [{"text": "..."}]}],
+        "systemInstruction": {"parts": [{"text": "..."}]},  # optional
+        "generationConfig": {"temperature": ..., "maxOutputTokens": ...}
+      }
+
+    Response usageMetadata:
+      - promptTokenCount, candidatesTokenCount, totalTokenCount
+      - cachedContentTokenCount (how many input tokens came from cache)
+    """
+
+    PROVIDER = "direct_google"
+    supports_split_messages: bool = True  # Maps system= → systemInstruction
+
+    MODEL_MAP = {
+        "google/gemini-2.5-flash": "gemini-2.5-flash",
+        "google/gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "google/gemini-2.5-pro": "gemini-2.5-pro",
+    }
+
+    PRICING = {
+        # $/M tokens (input, output). Cache reads are 10% of input on paid tier.
+        # Source: ai.google.dev/pricing — verify quarterly.
+        "gemini-2.5-flash": (0.30, 2.50),
+        "gemini-2.5-flash-lite": (0.10, 0.40),
+        "gemini-2.5-pro": (1.25, 10.00),
+    }
+
+    # Gemini automatic cache reads: 10% of input on paid tier. No separate
+    # cache_write event (caching is automatic).
+    CACHE_READ_MULTIPLIER = 0.10
+
+    def __init__(self, api_key: str | None = None, **kwargs):
+        api_key = (
+            api_key
+            or os.environ.get("GOOGLE_API_KEY")
+            or os.environ.get("GEMINI_API_KEY")
+            or ""
+        )
+        if not api_key:
+            raise ValueError(
+                "GoogleDirectClient requires GOOGLE_API_KEY or GEMINI_API_KEY env var. "
+                "Get a key at https://aistudio.google.com/app/apikey"
+            )
+        super().__init__("https://generativelanguage.googleapis.com/v1beta", api_key, **kwargs)
+
+    def _resolve_model(self, model: str) -> str:
+        if model in self.MODEL_MAP:
+            return self.MODEL_MAP[model]
+        for prefix in ("google/", "gemini/"):
+            if model.startswith(prefix):
+                return model[len(prefix):]
+        return model
+
+    def complete(self, *, model: str, messages: list[dict],
+                 temperature: float = 0.0, max_tokens: int = 64,
+                 system: str | None = None) -> CompletionResponse:
+        t0 = time.time()
+        native_model = self._resolve_model(model)
+
+        # Convert OpenAI-style messages to Gemini contents[].
+        contents: list[dict] = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            # Gemini uses "model" instead of "assistant".
+            gemini_role = "model" if role == "assistant" else role
+            contents.append({
+                "role": gemini_role,
+                "parts": [{"text": msg.get("content", "")}],
+            })
+
+        payload: dict = {
+            "contents": contents,
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
+            },
+        }
+        if system:
+            # Map runner's `system=` kwarg to Gemini's top-level `systemInstruction`.
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+
+        # Gemini uses ?key= in URL rather than Authorization header.
+        url = f"{self.base_url}/models/{native_model}:generateContent?key={self.api_key}"
+        data = jsonlib.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            raw = jsonlib.loads(resp.read().decode("utf-8"))
+        raw["_latency_ms"] = (time.time() - t0) * 1000
+
+        text = ""
+        for cand in raw.get("candidates", []):
+            for part in cand.get("content", {}).get("parts", []):
+                if "text" in part:
+                    text += part["text"]
+
+        usage = raw.get("usageMetadata", {})
+        prompt_tokens = usage.get("promptTokenCount", 0)
+        completion_tokens = usage.get("candidatesTokenCount", 0)
+        cached_tokens = usage.get("cachedContentTokenCount", 0)
+
+        pricing = self.PRICING.get(native_model, (1.0, 5.0))
+        input_cost, output_cost = pricing
+        non_cached_input = max(0, prompt_tokens - cached_tokens)
+        cost = (
+            (non_cached_input / 1_000_000) * input_cost
+            + (cached_tokens / 1_000_000) * input_cost * self.CACHE_READ_MULTIPLIER
+            + (completion_tokens / 1_000_000) * output_cost
+        )
+
+        return CompletionResponse(
+            text=text,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_tokens=cached_tokens,
+            cost_usd=cost,
+            model=raw.get("modelVersion", native_model),
+            raw=raw,
+        )
+
+
 class OpenRouterClient(BaseHTTPClient):
     """OpenRouter — https://openrouter.ai/api/v1."""
 
@@ -707,7 +975,7 @@ class EchoClient:
 
 
 def get_client(provider: str, **kwargs) -> BaseHTTPClient | EchoClient:
-    """Factory: 'ollama' | 'lmstudio' | 'openrouter' | 'direct_anthropic' | 'direct_zen' | 'echo'."""
+    """Factory: 'ollama' | 'lmstudio' | 'openrouter' | 'direct_anthropic' | 'direct_zen' | 'direct_openai' | 'direct_google' | 'echo'."""
     p = provider.lower()
     if p == "ollama":
         return OllamaClient(**kwargs)
@@ -719,9 +987,14 @@ def get_client(provider: str, **kwargs) -> BaseHTTPClient | EchoClient:
         return AnthropicDirectClient(**kwargs)
     if p == "direct_zen" or p == "zen":
         return ZenDirectClient(**kwargs)
+    if p == "direct_openai" or p == "openai":
+        return OpenAIDirectClient(**kwargs)
+    if p == "direct_google" or p == "google":
+        return GoogleDirectClient(**kwargs)
     if p == "echo":
         return EchoClient()
     raise ValueError(
         f"Unknown provider: {provider}. "
-        f"Use ollama/lmstudio/openrouter/direct_anthropic/direct_zen/echo."
+        f"Use ollama/lmstudio/openrouter/direct_anthropic/direct_zen/"
+        f"direct_openai/direct_google/echo."
     )

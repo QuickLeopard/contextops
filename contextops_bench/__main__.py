@@ -25,7 +25,9 @@ from contextops_bench.runner import (
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--provider", default="echo",
-                        choices=["echo", "ollama", "lmstudio", "openrouter", "direct_anthropic", "direct_zen"])
+                        choices=["echo", "ollama", "lmstudio", "openrouter",
+                                 "direct_anthropic", "direct_zen",
+                                 "direct_openai", "direct_google"])
     parser.add_argument("--model", default=None,
                         help="Model name (provider-specific). If unset, uses provider default. "
                              "For `cloud` subcommand, comma-separated runs each model.")
