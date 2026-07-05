@@ -146,7 +146,9 @@ def smoke(args) -> int:
 
 def local(args) -> int:
     """Local bench — Ollama / LM Studio."""
-    return _execute(args, label=f"local_{args.provider}", n=args.n)
+    # If --label was passed, use it verbatim; else default to local_<provider>.
+    label = args.label or f"local_{args.provider}"
+    return _execute(args, label=label, n=args.n)
 
 
 def cloud(args) -> int:
@@ -155,7 +157,16 @@ def cloud(args) -> int:
     rc = 0
     for m in models:
         args.model = m
-        rc |= _execute(args, label=f"cloud_{m.replace('/', '_')}", n=args.n)
+        # Honor --label: if user passed one, use it (optionally suffixed with
+        # model name when running multiple models in one invocation).
+        if args.label:
+            label = (
+                args.label if len(models) == 1
+                else f"{args.label}_{m.replace('/', '_')}"
+            )
+        else:
+            label = f"cloud_{m.replace('/', '_')}"
+        rc |= _execute(args, label=label, n=args.n)
     return rc
 
 

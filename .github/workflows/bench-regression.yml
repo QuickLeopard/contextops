@@ -1,0 +1,121 @@
+name: bench-regression
+
+# Bench regression gate — runs the realistic-preset bench against a real
+# provider with a small N (default 5) and fails the workflow if the optimized
+# arm's cache hit rate p50 falls below BENCH_THRESHOLD (default 0.50).
+#
+# This is the meta-fix for the v0.3.1 bug (realistic preset randomized role →
+# cache key rotated → 0% cache hit rate while looking "real"). Unit tests use
+# EchoClient and would never have caught it. This gate uses a REAL provider.
+#
+# Required secret: at least ONE of ZEN_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY.
+# If none are configured, the gate is skipped with a warning. Add a key as a
+# repo secret (Settings → Secrets and variables → Actions) to enable.
+#
+# Triggers:
+#   - pull_request on main: catches regressions before merge
+#   - push on main (paths filter): catches regressions that bypassed PR review
+#   - workflow_dispatch: manual trigger with custom n / threshold / model
+#
+# Override defaults (workflow_dispatch inputs only):
+#   - n:           bench call count (default 5)
+#   - threshold:   min cache_hit_rate_p50 (default 0.50)
+#   - provider:    direct_zen | direct_anthropic | direct_openai (default direct_zen)
+#   - model:       model name (default claude-sonnet-4-6)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "contextops_bench/**"
+      - "contextops/optimizer.py"
+      - "contextops/models.py"
+      - "scripts/ci_bench_gate.py"
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Bench provider"
+        required: false
+        default: "direct_zen"
+        type: choice
+        options:
+          - direct_zen
+          - direct_anthropic
+          - direct_openai
+      model:
+        description: "Model name"
+        required: false
+        default: "claude-sonnet-4-6"
+      n:
+        description: "Number of bench calls (default 5)"
+        required: false
+        default: "5"
+        type: string
+      threshold:
+        description: "Min cache_hit_rate_p50 (default 0.50)"
+        required: false
+        default: "0.50"
+        type: string
+
+concurrency:
+  group: bench-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench-regression:
+    name: Bench regression gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      ZEN_API_KEY: ${{ secrets.ZEN_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      BENCH_PROVIDER: ${{ github.event.inputs.provider || 'direct_zen' }}
+      BENCH_MODEL: ${{ github.event.inputs.model || 'claude-sonnet-4-6' }}
+      BENCH_N: ${{ github.event.inputs.n || '5' }}
+      BENCH_THRESHOLD: ${{ github.event.inputs.threshold || '0.50' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Check for bench API key
+        id: gate-key-check
+        run: |
+          if [ -z "${ZEN_API_KEY}${ANTHROPIC_API_KEY}${OPENAI_API_KEY}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::No bench API key secret configured. Skipping regression gate." >&2
+            echo "Add ZEN_API_KEY (recommended — cheapest), ANTHROPIC_API_KEY, or OPENAI_API_KEY" >&2
+            echo "as a repo secret to enable this gate. See .github/workflows/bench-regression.yml." >&2
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run bench regression gate
+        if: steps.gate-key-check.outputs.skip == 'false'
+        run: python scripts/ci_bench_gate.py
+
+      - name: Upload bench artifacts (always, on success or failure)
+        if: steps.gate-key-check.outputs.skip == 'false'
+        uses: actions/upload-artifact@v6
+        with:
+          name: bench-regression-artifacts
+          path: |
+            bench/results/ci_gate_*.csv
+            bench/results/ci_gate_*.summary.json
+          if-no-files-found: ignore
+          retention-days: 14

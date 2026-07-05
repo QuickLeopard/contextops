@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed (tests)
 - Four unit tests in `tests/test_bench_unit.py` were authored for the original single-run-per-prompt `run_batch` behavior. After the cache-control refactor, `run_batch` runs each prompt twice (optimized + baseline) for paired A/B. Updated expected counts from N → 2N to match. No production code change required; the tests had drifted from actual semantics.
 
+### Added
+- **CI bench regression gate** (`.github/workflows/bench-regression.yml` + `scripts/ci_bench_gate.py`): runs the realistic-preset bench against a real provider with a small N (default 5) and fails the workflow if `optimized.cache_hit_rate_p50 < BENCH_THRESHOLD` (default 0.50). This is the meta-fix for the cache-key regression above — unit tests use EchoClient (no real cache, no real network) and would never have caught it. Triggered on PRs to `main`, push to `main` (paths-filtered to bench source), and `workflow_dispatch` for manual runs with custom `n`/`threshold`/`provider`/`model` inputs. Skipped with a warning if no API key secret is configured; add one of `ZEN_API_KEY` (recommended, cheapest), `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` as a repo secret to enable.
+
+### Fixed
+- `bench/__main__.py`: `cloud` and `local` subcommands now honor `--label` when set (previously hard-coded the label, making the CLI flag a silent no-op). If `--label` is set with a single model, it's used verbatim; with multiple models, the model name is appended to keep artifacts unique.
+
 ## [0.3.0] — 2026-07-04
 
 ### Changed
