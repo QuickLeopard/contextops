@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Bench harness — realistic preset cache key regression:** the `realistic` agent preset pinned `system` and `tools` to constants but left `role` randomized (`random.choice(["weather-agent", "code-assistant", ...])`). Since the bench sends the cacheable prefix as `system + "\n\n" + tools + "\n\n" + role`, role rotation silently invalidated the cache key on every call — every optimized call became a cold `cache_creation` (1.25× write surcharge) with zero `cache_read`s, making the optimized arm more expensive per call than baseline. Pinned `role: "code-assistant"` in `AGENT_PRESETS["realistic"]`. After the fix (verified on OpenCode-ZEN, `--preset-agent realistic`, n=30): optimized arm is **90% cheaper per call** ($0.00107 vs baseline $0.01062) with mean cache hit rate 89.2% (the cache mechanism works correctly on ZEN once the prefix is stable across calls). Total run cost dropped from $0.319 → $0.032 across the 60-call A/B — saved $0.287.
+
+### Changed
+- `contextops_bench.prompt_factory.generate_one` / `generate_many` now accept a `fixed_role` parameter to mirror `fixed_system` / `fixed_tools` / `fixed_model`. Presets can lock agent identity the same way they lock system prompt and tool schema.
+- Bench startup log now reports the resolved `role` along with `system` and `tools` sizes, so future regressions in preset-pinning are obvious at a glance.
+
+### Fixed (tests)
+- Four unit tests in `tests/test_bench_unit.py` were authored for the original single-run-per-prompt `run_batch` behavior. After the cache-control refactor, `run_batch` runs each prompt twice (optimized + baseline) for paired A/B. Updated expected counts from N → 2N to match. No production code change required; the tests had drifted from actual semantics.
+
 ## [0.3.0] — 2026-07-04
 
 ### Changed

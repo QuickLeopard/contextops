@@ -79,24 +79,29 @@ def test_run_batch_alternates_optimized_baseline():
     prompts = list(generate_many(n=10, seed=42))
     client = EchoClient()
     results = run_batch(prompts, client=client, parallel=1, cache_warm=False)
-    assert len(results) == 10
-    # Even ids = optimized, odd = baseline (when cache_warm=False)
-    even_results = [r for r in results if r.prompt_id % 2 == 0]
-    odd_results = [r for r in results if r.prompt_id % 2 == 1]
-    assert len(even_results) == 5
-    assert len(odd_results) == 5
+    # Each prompt runs TWICE (optimized + baseline) for the A/B, so 10 prompts
+    # → 20 results. With cache_warm=False, jobs interleave by parity.
+    assert len(results) == 20
+    optimized = [r for r in results if r.use_optimized]
+    baseline = [r for r in results if not r.use_optimized]
+    assert len(optimized) == 10
+    assert len(baseline) == 10
+    # Same prompts ran on both arms (paired A/B)
+    assert sorted(r.prompt_id for r in optimized) == list(range(10))
+    assert sorted(r.prompt_id for r in baseline) == list(range(10))
 
 
 def test_run_batch_cache_warm_mode():
-    """In cache_warm=True (default), first half = optimized, second half = baseline."""
+    """In cache_warm=True (default), optimized jobs run first, then baseline."""
     prompts = list(generate_many(n=10, seed=42))
     client = EchoClient()
     results = run_batch(prompts, client=client, parallel=1, cache_warm=True)
-    # First 5 prompt_ids should be optimized (section_order starts with "system")
-    # Last 5 should be baseline (section_order may differ — though reorder still applies).
-    # With random generation, optimized and baseline differ only in token delta, not section.
-    # What matters: all 10 ran, prompt_ids 0..9 exist.
-    assert sorted(r.prompt_id for r in results) == list(range(10))
+    # Each prompt runs twice (optimized + baseline), so 20 results, 10 distinct prompt_ids.
+    optimized = [r for r in results if r.use_optimized]
+    baseline = [r for r in results if not r.use_optimized]
+    assert len(optimized) == 10
+    assert len(baseline) == 10
+    assert sorted(set(r.prompt_id for r in results)) == list(range(10))
 
 
 def test_save_csv_roundtrip(tmp_path):
@@ -110,9 +115,10 @@ def test_save_csv_roundtrip(tmp_path):
     with csv_path.open() as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-    assert len(rows) == 5
+    # Each prompt runs twice (optimized + baseline) → 10 rows for 5 prompts
+    assert len(rows) == 10
     assert "prompt_id" in rows[0]
-    assert "provider" in rows[0]
+    assert "provider" in rows[0]   
 
 
 def test_summarize_basic_stats():
@@ -123,8 +129,9 @@ def test_summarize_basic_stats():
     assert "optimized" in s
     assert "baseline" in s
     assert "delta" in s
-    assert s["optimized"]["n"] == 10
-    assert s["baseline"]["n"] == 10
+    # Each prompt runs twice (optimized + baseline) → 20 each arm
+    assert s["optimized"]["n"] == 20
+    assert s["baseline"]["n"] == 20
     assert s["optimized"]["errors"] == 0
 
 
@@ -145,8 +152,10 @@ def test_run_batch_parallel_safe():
     client = EchoClient()
     serial = run_batch(prompts, client=client, parallel=1, cache_warm=False)
     parallel = run_batch(prompts, client=client, parallel=4, cache_warm=False)
-    # Same prompt_ids in both, possibly different order
+    # Same prompt_ids in both, possibly different order. Each prompt runs twice → 40 results.
     assert sorted(r.prompt_id for r in serial) == sorted(r.prompt_id for r in parallel)
+    assert len(serial) == 40
+    assert len(parallel) == 40
 
 
 def test_edge_cases_pass_through_optimize():
@@ -167,7 +176,8 @@ def test_smoke_under_30_seconds():
     results = run_batch(prompts, client=client, parallel=1, cache_warm=False)
     elapsed = time.time() - t0
     assert elapsed < 30.0
-    assert len(results) == len(prompts)
+    # Each prompt runs twice (optimized + baseline)
+    assert len(results) == len(prompts) * 2
     # No errors expected
     errors = [r for r in results if r.error]
     assert len(errors) == 0

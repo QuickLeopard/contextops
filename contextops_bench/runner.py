@@ -14,6 +14,12 @@ from contextops.optimizer import reorder, count_tokens
 from contextops_bench.clients import BenchResult, CompletionResponse
 
 
+# Sections treated as "stable" content (sent in the system message for
+# Anthropic cache_control). Anything not in this set is treated as variable
+# content (sent in the user message).
+STABLE_SECTIONS: frozenset[str] = frozenset({"system", "tools", "role"})
+
+
 def _render_prompt(p: Prompt) -> tuple[str, list[str]]:
     """Render prompt to a single string + return its current section order.
 
@@ -37,6 +43,33 @@ def _render_prompt(p: Prompt) -> tuple[str, list[str]]:
         parts.append(content)
         order.append(sec)
     return "\n\n".join(parts), order
+
+
+def _split_prompt(p: Prompt) -> tuple[str, str, list[str]]:
+    """Split a prompt into (system_content, user_content, section_order).
+
+    System content = stable sections (system, tools, role) joined with double newlines.
+    User content = variable sections (context, documents, history, query) in render order.
+    Section order = full ordered list of section names from the rendered prompt.
+
+    For Anthropic via OpenRouter, system_content is sent as a system message
+    with `cache_control: {type: "ephemeral"}` so the provider can cache the
+    stable prefix explicitly. For all other models, the bench falls back to
+    sending everything as a single user message.
+    """
+    prompt_str, order = _render_prompt(p)
+    # Map section name -> content from the underlying Prompt
+    section_map: dict[str, str] = {name: content for name, content in p.sections()}
+
+    # Use the rendered order to determine stable vs variable splits
+    sys_parts: list[str] = []
+    usr_parts: list[str] = []
+    for name in order:
+        if name in STABLE_SECTIONS:
+            sys_parts.append(section_map.get(name, ""))
+        else:
+            usr_parts.append(section_map.get(name, ""))
+    return "\n\n".join(s for s in sys_parts if s), "\n\n".join(u for u in usr_parts if u), order
 
 
 def _reverse_prompt(p: Prompt) -> Prompt:
@@ -77,11 +110,26 @@ def run_one(
     else:
         target = prompt
     prompt_str, section_order = _render_prompt(target)
+    system_str, user_str, _ = _split_prompt(target)
 
     provider = client.PROVIDER
-    messages = [{"role": "user", "content": prompt_str}] if prompt_str else [
-        {"role": "user", "content": "(empty)"}
-    ]
+    # OPTIMIZED arm: send stable sections (system, tools, role) as a separate
+    # system message with cache_control. Variable sections go in a user message.
+    # This is what a well-designed prompt template does in production.
+    #
+    # BASELINE arm: send EVERYTHING in a single user message with no system
+    # field. This is the "naive" prompt template that doesn't separate stable
+    # from variable content — what most teams accidentally ship. The provider
+    # has no cache_control marker to anchor on, so cache hits depend entirely
+    # on whether the prefix matches a previous call.
+    if use_optimized and getattr(client, "supports_split_messages", False) and system_str:
+        messages = [{"role": "user", "content": user_str or "(empty)"}]
+        complete_kwargs = {"system": system_str}
+    else:
+        messages = [{"role": "user", "content": prompt_str}] if prompt_str else [
+            {"role": "user", "content": "(empty)"}
+        ]
+        complete_kwargs = {}
 
     try:
         resp: CompletionResponse = client.complete(
@@ -89,11 +137,13 @@ def run_one(
             messages=messages,
             temperature=0.0,
             max_tokens=32,
+            **complete_kwargs,
         )
         return BenchResult(
             prompt_id=prompt_id,
             model=target.model,
             provider=provider,
+            use_optimized=use_optimized,
             prompt_tokens=resp.prompt_tokens,
             completion_tokens=resp.completion_tokens,
             cached_tokens=resp.cached_tokens,
@@ -106,6 +156,7 @@ def run_one(
             prompt_id=prompt_id,
             model=target.model,
             provider=provider,
+            use_optimized=use_optimized,
             prompt_tokens=count_tokens(prompt_str, target.model),
             completion_tokens=0,
             cost_usd=0.0,
@@ -135,53 +186,66 @@ def run_batch(
     on_progress: Callable[[int, int], None] | None = None,
     cache_warm: bool = True,
 ) -> list[BenchResult]:
-    """Run a batch of prompts. Half optimized, half baseline.
+    """Run a batch of prompts. Each prompt is run TWICE — once optimized, once
+    baseline — so the A/B comparison is on the same content, just rendered in
+    two orderings. Total result count is 2 * len(prompts).
 
     `cache_warm=True` (default): runs ALL optimized first to warm the cache, then
-    ALL baseline with a FRESH client (no cache leakage between phases).
+    ALL baseline with a FRESH client (no in-memory state leakage between phases).
     This simulates a real deployment: new layout deployed, used for a while,
     then someone tries the old layout for comparison. Result: optimized wins
-    because its cache is warm.
+    because its cache is warm and stable prefix is in the same position.
 
     `cache_warm=False`: alternate optimized/baseline, single client.
-    Less realistic but isolates the effect of reorder on identical prompt strings.
+    Less realistic but isolates the effect of reorder on identical prompt strings
+    with a shared cache.
     """
     items = list(prompts)
     n = len(items)
 
+    # Each prompt produces 2 results: (prompt_id, item, use_optimized)
+    jobs: list[tuple[int, Prompt, bool]] = []
+    for i, p in enumerate(items):
+        jobs.append((i, p, True))   # optimized version
+        jobs.append((i, p, False))  # baseline version
+
     if cache_warm:
-        half = n // 2
-        optimized_jobs = [(i, items[i], True) for i in range(half)]
-        baseline_jobs = [(i, items[i], False) for i in range(half, n)]
+        # Run all optimized first (cache warms on stable prefix), then all baseline
+        # with a fresh client. The fresh client just resets in-memory state for
+        # stateful clients like EchoClient; for stateless HTTP clients the server-
+        # side provider cache is global to the API key and persists either way.
         client_opt = client
         client_base = _make_fresh_client(client)
-        jobs_with_client = (
-            [(idx, p, use_opt, client_opt) for (idx, p, use_opt) in optimized_jobs]
-            + [(idx, p, use_opt, client_base) for (idx, p, use_opt) in baseline_jobs]
-        )
+        optimized_jobs = [(idx, p, True, client_opt) for (idx, p, use_opt) in jobs if use_opt]
+        baseline_jobs = [(idx, p, False, client_base) for (idx, p, use_opt) in jobs if not use_opt]
+        jobs_with_client = optimized_jobs + baseline_jobs
     else:
+        # Alternate: optimized, baseline, optimized, baseline ...
         jobs_with_client = [
-            (i, p, i % 2 == 0, client) for i, p in enumerate(items)
+            (idx, p, use_opt, client) for (idx, p, use_opt) in jobs
         ]
 
     results: list[BenchResult | None] = [None] * len(jobs_with_client)
     completed = 0
 
-    def _work(idx: int, p: Prompt, use_opt: bool, c) -> tuple[int, BenchResult]:
-        return idx, run_one(p, prompt_id=idx, client=c, use_optimized=use_opt)
+    def _work(slot: int, prompt_id: int, p: Prompt, use_opt: bool, c) -> tuple[int, BenchResult]:
+        return slot, run_one(p, prompt_id=prompt_id, client=c, use_optimized=use_opt)
 
     if parallel <= 1:
-        for idx, p, use_opt, c in jobs_with_client:
-            i, r = _work(idx, p, use_opt, c)
+        for slot, (prompt_id, p, use_opt, c) in enumerate(jobs_with_client):
+            i, r = _work(slot, prompt_id, p, use_opt, c)
             results[i] = r
             completed += 1
             if on_progress:
                 on_progress(completed, n)
     else:
+        # For parallel, alternate so each prompt's two jobs may run concurrently
+        # on different workers — better throughput, but cache_warm semantics are
+        # weaker (no clean warm-then-cold split).
         with ThreadPoolExecutor(max_workers=parallel) as pool:
             futures = [
-                pool.submit(_work, idx, p, use_opt, c)
-                for (idx, p, use_opt, c) in jobs_with_client
+                pool.submit(_work, slot, prompt_id, p, use_opt, c)
+                for slot, (prompt_id, p, use_opt, c) in enumerate(jobs_with_client)
             ]
             for fut in as_completed(futures):
                 i, r = fut.result()
@@ -219,28 +283,23 @@ def summarize(
     *,
     exclude_ids: set[int] | None = None,
 ) -> dict:
-    """Compute summary stats. Group by prompt_id parity.
+    """Compute summary stats. Group by `use_optimized`.
 
-    `exclude_ids` is a set of prompt_ids to drop from headline stats (e.g. edge cases
-    that are deliberately degenerate — empty prompts, 100k-token blobs).
-
-    Convention: `run_batch` puts optimized prompts in prompt_ids 0..n/2-1
-    (cache_warm mode) OR even prompt_ids (alternating mode).
+    Each prompt runs twice (once optimized, once baseline) so the A/B is on the
+    same content rendered in two orderings. `exclude_ids` is a set of prompt_ids
+    to drop from headline stats (e.g. edge cases that are deliberately degenerate
+    — empty prompts, 100k-token blobs). Excluded prompt_ids are dropped from BOTH
+    arms so the A/B stays paired.
     """
     n = len(results)
     if n == 0:
         return {"optimized": {}, "baseline": {}, "delta": {}}
 
-    half = n // 2
-    if results and results[0].prompt_id == 0:
-        optimized_all = results[:half]
-        baseline_all = results[half:]
-    else:
-        optimized_all = [r for r in results if r.prompt_id % 2 == 0]
-        baseline_all = [r for r in results if r.prompt_id % 2 == 1]
-
     # Filter out excluded ids (edge cases) before computing headline stats.
     excluded = exclude_ids or set()
+    optimized_all = [r for r in results if r.use_optimized]
+    baseline_all = [r for r in results if not r.use_optimized]
+
     optimized = [r for r in optimized_all if r.prompt_id not in excluded]
     baseline = [r for r in baseline_all if r.prompt_id not in excluded]
     excluded_optimized = [r for r in optimized_all if r.prompt_id in excluded]
@@ -296,9 +355,14 @@ def _stats(rows: list[BenchResult]) -> dict:
     costs = [r.cost_usd for r in rows]
     latencies = [r.latency_ms for r in rows if r.latency_ms > 0]
     errors = [r for r in rows if r.error]
+    # Cache hit rate: cached_tokens / (cached_tokens + prompt_tokens).
+    # Anthropic's API reports `input_tokens` EXCLUDING cached tokens, so
+    # the denominator must be the sum of cached + uncached to get a
+    # correct 0..1 fraction. (The earlier formula `cached / prompt`
+    # gives nonsensical values > 100% when the cache is working well.)
     cache_hits = [
-        r.cached_tokens / r.prompt_tokens
-        for r in rows if r.prompt_tokens > 0
+        r.cached_tokens / (r.cached_tokens + r.prompt_tokens)
+        for r in rows if (r.cached_tokens + r.prompt_tokens) > 0
     ]
     return {
         "n": len(rows),

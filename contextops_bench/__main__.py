@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from contextops_bench.clients import get_client
-from contextops_bench.prompt_factory import generate_many, EDGE_CASES
+from contextops_bench.prompt_factory import generate_many, EDGE_CASES, AGENT_PRESETS
 from contextops_bench.runner import (
     render_summary,
     run_batch,
@@ -25,9 +25,10 @@ from contextops_bench.runner import (
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--provider", default="echo",
-                        choices=["echo", "ollama", "lmstudio", "openrouter"])
+                        choices=["echo", "ollama", "lmstudio", "openrouter", "direct_anthropic", "direct_zen"])
     parser.add_argument("--model", default=None,
-                        help="Model name (provider-specific). If unset, uses provider default.")
+                        help="Model name (provider-specific). If unset, uses provider default. "
+                             "For `cloud` subcommand, comma-separated runs each model.")
     parser.add_argument("--n", type=int, default=100)
     parser.add_argument("--parallel", type=int, default=1)
     parser.add_argument("--out", type=Path, default=Path("bench/results"))
@@ -37,6 +38,12 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
                              "(simulates a real agent workload — enables cache hits)")
     parser.add_argument("--fixed-tools", default=None,
                         help="Lock the tools section across all generated prompts")
+    parser.add_argument("--preset-agent", default=None, choices=list(AGENT_PRESETS.keys()),
+                        help="Load a preset system prompt + tool schema. "
+                             "Required for cache_hit_rate to be non-zero on cloud providers "
+                             "since both OpenAI and Anthropic have token minimums "
+                             "(1024 for Sonnet/Opus, 2048 for Haiku). "
+                             "Overrides --fixed-system/--fixed-tools if set.")
 
 
 def _make_client_and_model(args) -> tuple:
@@ -58,16 +65,27 @@ def _make_client_and_model(args) -> tuple:
 def _execute(args, *, label: str, n: int, include_edge_cases: bool = False) -> int:
     client, model = _make_client_and_model(args)
 
-    # Override model on client if possible
-    if hasattr(client, "default_model"):
-        model = client.default_model  # type: ignore[attr-defined]
+    # --preset-agent overrides --fixed-system / --fixed-tools / --fixed-role
+    fixed_system = args.fixed_system
+    fixed_tools = args.fixed_tools
+    fixed_role = None
+    if args.preset_agent:
+        preset = AGENT_PRESETS[args.preset_agent]
+        fixed_system = fixed_system or preset["system"]
+        fixed_tools = fixed_tools or preset["tools"]
+        fixed_role = preset.get("role")  # role may be absent in some presets
+        print(f"[bench] preset-agent={args.preset_agent}  "
+              f"system~{len(fixed_system)} chars  tools~{len(fixed_tools)} chars  "
+              f"role={fixed_role!r}")
 
     print(f"[bench] provider={args.provider}  model={model}  n={n}  parallel={args.parallel}")
 
     generated = list(generate_many(
         n=n, seed=42,
-        fixed_system=args.fixed_system,
-        fixed_tools=args.fixed_tools,
+        fixed_system=fixed_system,
+        fixed_tools=fixed_tools,
+        fixed_model=model,
+        fixed_role=fixed_role,
     ))
     prompts: list = []
     edge_ids: list[int] = []
@@ -160,6 +178,10 @@ def main() -> int:
     p_local = sub.add_parser("local", help="Run against local LLM (Ollama/LM Studio)")
     _add_common_args(p_local)
     p_local.set_defaults(func=local)
+
+    p_direct = sub.add_parser("direct", help="Run against direct API (no OpenRouter) — definitive cache signal")
+    _add_common_args(p_direct)
+    p_direct.set_defaults(func=local)
 
     p_cloud = sub.add_parser("cloud", help="Run against OpenRouter (1+ models)")
     _add_common_args(p_cloud)
