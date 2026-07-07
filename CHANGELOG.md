@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-07-07
+
+This release ships the v0.3.1 cache-key regression fix plus the bench infrastructure needed to actually measure it (CI regression gate, direct OpenAI/Google providers), and adds a safety-net auto-default that closes the latent version of the same bug on the no-preset cloud path. See [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md) for the full story.
+
 ### Fixed
 - **Bench harness — realistic preset cache key regression:** the `realistic` agent preset pinned `system` and `tools` to constants but left `role` randomized (`random.choice(["weather-agent", "code-assistant", ...])`). Since the bench sends the cacheable prefix as `system + "\n\n" + tools + "\n\n" + role`, role rotation silently invalidated the cache key on every call — every optimized call became a cold `cache_creation` (1.25× write surcharge) with zero `cache_read`s, making the optimized arm more expensive per call than baseline. Pinned `role: "code-assistant"` in `AGENT_PRESETS["realistic"]`. After the fix (verified on OpenCode-ZEN, `--preset-agent realistic`, n=30): optimized arm is **90% cheaper per call** ($0.00107 vs baseline $0.01062) with mean cache hit rate 89.2% (the cache mechanism works correctly on ZEN once the prefix is stable across calls). Total run cost dropped from $0.319 → $0.032 across the 60-call A/B — saved $0.287.
+
+- **Bench harness — no-preset cloud path silently randomized role too.** The fix above only covered the explicit `--preset-agent realistic` path; anyone running `bench cloud --provider direct_openai` *without* `--preset-agent` and without `--fixed-*` overrides still got the same bug because `generate_one` randomizes `role` by default. Added a safety net in `__main__._resolve_preset_args`: on cache-bearing providers (`openrouter`, `direct_anthropic`, `direct_zen`, `direct_openai`, `direct_google`), if no preset/fixed args are passed, the `realistic` preset is auto-applied and a loud warning explains what happened and how to opt out. Echo / Ollama / LM Studio unchanged (they have no cache, so the default is meaningless there). New `--preset-agent none` flag for the explicit opt-out.
 
 ### Changed
 - `contextops_bench.prompt_factory.generate_one` / `generate_many` now accept a `fixed_role` parameter to mirror `fixed_system` / `fixed_tools` / `fixed_model`. Presets can lock agent identity the same way they lock system prompt and tool schema.
@@ -21,13 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI bench regression gate** (`.github/workflows/bench-regression.yml` + `scripts/ci_bench_gate.py`): runs the realistic-preset bench against a real provider with a small N (default 5) and fails the workflow if `optimized.cache_hit_rate_p50 < BENCH_THRESHOLD` (default 0.50). This is the meta-fix for the cache-key regression above — unit tests use EchoClient (no real cache, no real network) and would never have caught it. Triggered on PRs to `main`, push to `main` (paths-filtered to bench source), and `workflow_dispatch` for manual runs with custom `n`/`threshold`/`provider`/`model` inputs. Skipped with a warning if no API key secret is configured; add one of `ZEN_API_KEY` (recommended, cheapest), `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` as a repo secret to enable.
 
 ### Fixed
-- `bench/__main__.py`: `cloud` and `local` subcommands now honor `--label` when set (previously hard-coded the label, making the CLI flag a silent no-op). If `--label` is set with a single model, it's used verbatim; with multiple models, the model name is appended to keep artifacts unique.
+- `contextops_bench/__main__.py`: `cloud` and `local` subcommands now honor `--label` when set (previously hard-coded the label, making the CLI flag a silent no-op). If `--label` is set with a single model, it's used verbatim; with multiple models, the model name is appended to keep artifacts unique.
 
 ### Added
 - **Direct OpenAI provider** (`contextops_bench.clients.OpenAIDirectClient`, alias `direct_openai` / `openai`): bypasses OpenRouter entirely. OpenAI's prompt caching is AUTOMATIC — no `cache_control` markers, just `usage.prompt_tokens_details.cached_tokens` reporting which prompt tokens came from cache at 50% off input. This is the opposite cache shape from Anthropic (which we already support via `direct_anthropic` and `direct_zen`) — useful for users who need to verify both flavors of cache mechanics in one tool. Auth: `OPENAI_API_KEY` env var.
 - **Direct Google Gemini provider** (`contextops_bench.clients.GoogleDirectClient`, alias `direct_google` / `google`): bypasses OpenRouter entirely, talks to `generativelanguage.googleapis.com` (Google AI Studio) directly. Gemini's caching is also IMPLICIT (`cachedContentTokenCount` in `usageMetadata`) — no markers, no separate `system` message, just a `systemInstruction` top-level field that maps from the runner's `system=` kwarg. Cache reads cost 10% of input on the paid tier. Auth: `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) env var. Supports `--preset-agent realistic` end-to-end (path: `bench cloud --provider direct_google --model google/gemini-2.5-flash ...`).
 - Together with the existing `direct_zen` and `direct_anthropic` providers, the bench now has dedicated measurement paths for the four major cache mechanics flavors: Anthropic-style explicit (`cache_control: ephemeral`), OpenAI-style automatic-with-discount, Gemini-style automatic-with-implicit-system-field, and Zen's pass-through (same shape as Anthropic, different URL).
-- 8 new unit tests in `tests/test_bench_unit.py` cover: factory wiring, missing-API-key errors, model name resolution (with/without prefixes), and cache-read cost discount math (mocked transport).
+- 14 new unit tests in `tests/test_bench_unit.py` (8 for the direct providers, 6 for `_resolve_preset_args`). Total: **53 passing**.
 
 ## [0.3.0] — 2026-07-04
 

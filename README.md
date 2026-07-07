@@ -91,7 +91,7 @@ Estimated impact on a typical workload:
 | **Dataset loaders** | `.json`, `.jsonl`, `.csv` golden QA datasets. |
 | **Rich CLI** | `optimize / stats / recent / compare / eval / reset` with tables and progress bars. |
 | **LiteLLM auto-log (opt)** | One line to auto-log every litellm call. `pip install "contextops[integrations]"` |
-| **Bench harness** | 1000+ prompts through Ollama, LM Studio, or OpenRouter. |
+| **Bench harness** | 1000+ prompts through Ollama, LM Studio, OpenRouter, or direct APIs (Anthropic / OpenAI / Gemini / OpenCode-ZEN). |
 
 ---
 
@@ -118,7 +118,7 @@ git clone https://github.com/QuickLeopard/contextops.git
 cd contextops
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,integrations]"
-pytest                                          # 35 tests
+pytest                                          # 53 tests
 python -m contextops_bench smoke               # offline smoke
 ```
 
@@ -285,7 +285,7 @@ litellm.completion(model="gpt-4o", messages=[{"role": "user", "content": "hi"}])
 
 ## 🧪 Bench harness
 
-1000+ prompts through Ollama, LM Studio, or OpenRouter:
+1000+ prompts through Ollama, LM Studio, OpenRouter, or direct APIs:
 
 ```bash
 # Smoke (10 prompts, <30s, no LLM, for CI)
@@ -294,17 +294,31 @@ python -m contextops_bench smoke
 # Local (100 prompts via Ollama)
 python -m contextops_bench local --provider ollama --model llama3.1:8b --n 100
 
-# Cloud (1000 prompts via OpenRouter, 3 models, parallel)
+# Cloud via OpenRouter, multi-model, parallel
 export OPENROUTER_API_KEY=sk-or-v1-...
 python -m contextops_bench cloud --provider openrouter \
     --model openai/gpt-4o-mini,anthropic/claude-3.5-haiku,meta-llama/llama-3.1-8b-instruct \
     --n 1000 --parallel 4
+
+# Direct APIs (bypasses OpenRouter translation — definitive cache signal).
+# Pick the provider that matches your target's cache mechanics:
+export ZEN_API_KEY=...            # or ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY
+python -m contextops_bench cloud --provider direct_anthropic \
+    --model claude-sonnet-4-6 --preset-agent realistic --n 30   # explicit cache_control markers
+python -m contextops_bench cloud --provider direct_openai \
+    --model gpt-4o-mini --preset-agent realistic --n 30          # automatic caching, 50% off
+python -m contextops_bench cloud --provider direct_google \
+    --model google/gemini-2.5-flash --preset-agent realistic --n 30  # implicit caching, 10% off
 ```
+
+**About `--preset-agent`:** the bench needs a stable system prompt + tool schema + role across all calls for cache hits to be non-zero. `--preset-agent realistic` pins all three. On cache-bearing providers (OpenRouter + the four `direct_*`), the bench auto-applies `realistic` if you don't pass a preset — with a loud warning explaining why. Use `--preset-agent none` to opt out and use randomized prompts.
 
 Each run writes:
 
 - `bench/results/<label>.csv` — every observation (prompt_id, model, tokens, cache hit, cost, latency, error, section order)
 - `bench/results/<label>.summary.json` — aggregated stats with optimized vs baseline deltas
+
+**Troubleshooting cache reads showing 0?** Read [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md) — it covers the realistic-preset cache key regression, why OpenRouter drops `cache_control` markers during translation, and why EchoClient (used in unit tests) hides the bug.
 
 See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for the formal pass criteria.
 
@@ -314,8 +328,8 @@ See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for the formal pass criteria.
 
 - ✅ **v0.1** — reorder, token count, SQLite logger, CLI
 - ✅ **v0.2** — LLM-as-judge eval + A/B testing + dataset loaders
-- ✅ **v0.2+bench** — bench harness for Ollama / LM Studio / OpenRouter + acceptance criteria
-- 🔜 **v0.3** — RAG curator (multi-signal retrieval + strict threshold)
+- ✅ **v0.3** — realistic-preset cache-key regression fix + direct providers (Anthropic / Zen / OpenAI / Gemini) + CI bench regression gate + safety-net auto-default on cache-bearing providers. See [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md).
+- 🔜 **v0.4** — RAG curator (multi-signal retrieval + strict threshold)
 - 🔜 **v1.0** — Access-aware context + audit trail (on-prem / enterprise)
 
 ---
