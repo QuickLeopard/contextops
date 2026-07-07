@@ -23,6 +23,80 @@ from contextops_bench.runner import (
 )
 
 
+# Providers that actually charge for prompt cache. On these, the cache key
+# MUST be stable across calls or every request becomes a cold cache_write.
+# The `echo` / `ollama` / `lmstudio` providers don't have cache at all — for
+# those we keep the random default since cache hit rate is meaningless there.
+CACHE_BEARING_PROVIDERS = frozenset({
+    "openrouter", "direct_anthropic", "direct_zen", "direct_openai", "direct_google",
+})
+
+# Sentinel for `--preset-agent` to opt out of the auto-default below. Lives
+# outside AGENT_PRESETS so it doesn't pollute the preset dictionary semantics.
+_PRESET_NONE = "none"
+
+
+def _resolve_preset_args(args) -> tuple[str | None, str | None, str | None, str, str | None]:
+    """Resolve (fixed_system, fixed_tools, fixed_role, preset_label, warning).
+
+    `preset_label` is the human-readable name for log lines ("realistic",
+    "realistic (auto-default)", "none", "no-preset"). `warning` is a multi-line
+    string to print BEFORE the bench starts if a non-default fallback fires,
+    or None for the happy path.
+
+    Resolution rules (in order):
+      1. `--preset-agent <name>` → load AGENT_PRESETS[name], merge with any
+         explicit `--fixed-*` overrides. Role comes from the preset (so it's
+         pinned — see v0.3.1 postmortem).
+      2. `--preset-agent none` → explicit opt-out; use whatever `--fixed-*`
+         flags the user passed (or randomized defaults if they passed none).
+      3. No `--preset-agent`:
+         a. Cache-bearing provider + no `--fixed-*` overrides → auto-apply
+            `realistic` so the cache key stays constant. Print a warning so
+            the user knows this happened (and how to opt out).
+         b. Anything else → use whatever `--fixed-*` flags were passed (or
+            randomized defaults if they passed none).
+    """
+    name = args.preset_agent
+    fixed_system = args.fixed_system
+    fixed_tools = args.fixed_tools
+    fixed_role = None
+    warning: str | None = None
+
+    if name and name != _PRESET_NONE:
+        preset = AGENT_PRESETS[name]
+        fixed_system = fixed_system or preset["system"]
+        fixed_tools = fixed_tools or preset["tools"]
+        fixed_role = preset.get("role")  # role may be absent in some presets
+        label = name
+    elif name == _PRESET_NONE:
+        label = "none"
+    else:
+        # No preset passed. Safety net for cache-bearing providers: without a
+        # pinned role/system/tools, every prompt randomizes a piece of the
+        # cache key and we get 0% cache hit rate while looking legitimate.
+        # This is the exact failure mode v0.3.1 fixed for explicit
+        # --preset-agent users; the no-preset path was still exposed.
+        if args.provider in CACHE_BEARING_PROVIDERS and not (fixed_system or fixed_tools):
+            preset = AGENT_PRESETS["realistic"]
+            fixed_system = preset["system"]
+            fixed_tools = preset["tools"]
+            fixed_role = preset["role"]
+            label = "realistic (auto-default)"
+            warning = (
+                "[bench] WARNING: no --preset-agent passed on cache-bearing provider "
+                f"{args.provider!r}.\n"
+                "[bench]          Auto-applying 'realistic' preset so the cache key stays "
+                "constant.\n"
+                "[bench]          To silence this: pass --preset-agent realistic "
+                "(explicit) or --preset-agent none (opt out of the default)."
+            )
+        else:
+            label = "no-preset"
+
+    return fixed_system, fixed_tools, fixed_role, label, warning
+
+
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--provider", default="echo",
                         choices=["echo", "ollama", "lmstudio", "openrouter",
@@ -40,12 +114,14 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
                              "(simulates a real agent workload — enables cache hits)")
     parser.add_argument("--fixed-tools", default=None,
                         help="Lock the tools section across all generated prompts")
-    parser.add_argument("--preset-agent", default=None, choices=list(AGENT_PRESETS.keys()),
-                        help="Load a preset system prompt + tool schema. "
-                             "Required for cache_hit_rate to be non-zero on cloud providers "
-                             "since both OpenAI and Anthropic have token minimums "
-                             "(1024 for Sonnet/Opus, 2048 for Haiku). "
-                             "Overrides --fixed-system/--fixed-tools if set.")
+    parser.add_argument("--preset-agent", default=None,
+                        choices=list(AGENT_PRESETS.keys()) + [_PRESET_NONE],
+                        help="Load a preset system prompt + tool schema. Required for "
+                             "cache_hit_rate to be non-zero on cloud providers since both "
+                             "OpenAI and Anthropic have token minimums (1024 for Sonnet/Opus, "
+                             "2048 for Haiku). On cache-bearing providers (openrouter, "
+                             "direct_*), defaults to 'realistic' if unset — pass "
+                             "'none' to opt out and use randomized prompts.")
 
 
 def _make_client_and_model(args) -> tuple:
@@ -67,18 +143,19 @@ def _make_client_and_model(args) -> tuple:
 def _execute(args, *, label: str, n: int, include_edge_cases: bool = False) -> int:
     client, model = _make_client_and_model(args)
 
-    # --preset-agent overrides --fixed-system / --fixed-tools / --fixed-role
-    fixed_system = args.fixed_system
-    fixed_tools = args.fixed_tools
-    fixed_role = None
-    if args.preset_agent:
-        preset = AGENT_PRESETS[args.preset_agent]
-        fixed_system = fixed_system or preset["system"]
-        fixed_tools = fixed_tools or preset["tools"]
-        fixed_role = preset.get("role")  # role may be absent in some presets
-        print(f"[bench] preset-agent={args.preset_agent}  "
-              f"system~{len(fixed_system)} chars  tools~{len(fixed_tools)} chars  "
-              f"role={fixed_role!r}")
+    # Resolve preset / fixed_* args. May auto-default to 'realistic' on
+    # cache-bearing providers and emit a warning — see _resolve_preset_args
+    # docstring + v0.3.1 postmortem.
+    fixed_system, fixed_tools, fixed_role, preset_label, warning = _resolve_preset_args(args)
+    if warning:
+        # Multi-line warning — print each line on its own to keep the bench
+        # output readable.
+        for line in warning.splitlines():
+            print(line)
+    print(f"[bench] preset-agent={preset_label}  "
+          f"system~{len(fixed_system) if fixed_system else 0} chars  "
+          f"tools~{len(fixed_tools) if fixed_tools else 0} chars  "
+          f"role={fixed_role!r}")
 
     print(f"[bench] provider={args.provider}  model={model}  n={n}  parallel={args.parallel}")
 

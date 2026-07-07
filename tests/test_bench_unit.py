@@ -342,3 +342,128 @@ def test_smoke_under_30_seconds():
     # No errors expected
     errors = [r for r in results if r.error]
     assert len(errors) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests for _resolve_preset_args — the safety net for the v0.3.1 failure mode.
+# Without this, `bench cloud --provider direct_openai` (no --preset-agent) would
+# silently randomize role → cache key rotates every call → 0% cache hit rate.
+# ---------------------------------------------------------------------------
+
+def _make_args(provider="echo", preset_agent=None, fixed_system=None, fixed_tools=None):
+    """Build a minimal argparse.Namespace for _resolve_preset_args."""
+    import argparse
+    return argparse.Namespace(
+        provider=provider,
+        preset_agent=preset_agent,
+        fixed_system=fixed_system,
+        fixed_tools=fixed_tools,
+    )
+
+
+def test_resolve_preset_auto_defaults_realistic_on_cloud_provider():
+    """No preset, no fixed-* on a cache-bearing provider → realistic + warning.
+
+    This is the regression: prior to v0.3.1.x, this exact path randomized
+    role and silently produced 0% cache hit rate while looking legit.
+    """
+    from contextops_bench.__main__ import _resolve_preset_args
+    from contextops_bench.prompt_factory import AGENT_PRESETS
+
+    args = _make_args(provider="direct_openai", preset_agent=None)
+    fs, ft, fr, label, warning = _resolve_preset_args(args)
+
+    realistic = AGENT_PRESETS["realistic"]
+    assert fs == realistic["system"]
+    assert ft == realistic["tools"]
+    assert fr == realistic["role"]
+    assert label.startswith("realistic")
+    assert warning is not None
+    assert "realistic" in warning.lower()
+    assert "auto" in warning.lower()
+
+
+def test_resolve_preset_explicit_realistic_no_warning():
+    """--preset-agent realistic on cloud → realistic preset, no warning."""
+    from contextops_bench.__main__ import _resolve_preset_args
+    from contextops_bench.prompt_factory import AGENT_PRESETS
+
+    args = _make_args(provider="direct_anthropic", preset_agent="realistic")
+    fs, ft, fr, label, warning = _resolve_preset_args(args)
+
+    realistic = AGENT_PRESETS["realistic"]
+    assert fs == realistic["system"]
+    assert ft == realistic["tools"]
+    assert fr == realistic["role"]
+    assert label == "realistic"
+    assert warning is None
+
+
+def test_resolve_preset_explicit_none_opts_out():
+    """--preset-agent none → randomized, no warning, role not pinned."""
+    from contextops_bench.__main__ import _resolve_preset_args
+
+    args = _make_args(provider="direct_openai", preset_agent="none")
+    fs, ft, fr, label, warning = _resolve_preset_args(args)
+
+    # None of the preset fields should be filled in.
+    assert fs is None
+    assert ft is None
+    assert fr is None
+    assert label == "none"
+    assert warning is None
+
+
+def test_resolve_preset_local_provider_no_default():
+    """Echo / Ollama / LM Studio don't have cache → no auto-default.
+
+    Smoke tests rely on this — they'd fail if every smoke run printed a
+    'no preset' warning.
+    """
+    from contextops_bench.__main__ import _resolve_preset_args
+
+    for prov in ("echo", "ollama", "lmstudio"):
+        args = _make_args(provider=prov, preset_agent=None)
+        fs, ft, fr, label, warning = _resolve_preset_args(args)
+        assert fs is None
+        assert ft is None
+        assert fr is None
+        assert label == "no-preset"
+        assert warning is None
+
+
+def test_resolve_preset_fixed_system_overrides_auto_default():
+    """--fixed-system on cloud provider → uses it, no auto-default, no warning.
+
+    The user knows what they're doing when they pass a fixed-system; don't
+    second-guess them.
+    """
+    from contextops_bench.__main__ import _resolve_preset_args
+
+    args = _make_args(
+        provider="direct_openai",
+        preset_agent=None,
+        fixed_system="my custom system prompt",
+    )
+    fs, ft, fr, label, warning = _resolve_preset_args(args)
+    assert fs == "my custom system prompt"
+    assert label == "no-preset"
+    assert warning is None
+
+
+def test_resolve_preset_echo_subcommand_with_realistic_override():
+    """--preset-agent realistic on echo → realistic preset still applies.
+
+    Cache-bearing gating only fires on the auto-default path. Explicit preset
+    always wins.
+    """
+    from contextops_bench.__main__ import _resolve_preset_args
+    from contextops_bench.prompt_factory import AGENT_PRESETS
+
+    args = _make_args(provider="echo", preset_agent="realistic")
+    fs, ft, fr, label, warning = _resolve_preset_args(args)
+    realistic = AGENT_PRESETS["realistic"]
+    assert fs == realistic["system"]
+    assert fr == realistic["role"]
+    assert label == "realistic"
+    assert warning is None
