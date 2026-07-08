@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Per-prompt breakdown** (`contextops.breakdown`, new module `contextops_bench/breakdown.py`): top-N prompts by `|Δ cost|` rendered as a Rich table at the end of the bench summary, and also saved to `bench/results/<label>.breakdown.csv`. Columns: `prompt_id, model, prompt_tokens, baseline_cost, optimized_cost, delta_cost, delta_pct, baseline_cache_hit, optimized_cache_hit`. Diagnoses which prompt shapes the reorder helps vs hurts.
+- **Bootstrap CI on A/B cost delta** (new module `contextops_bench/stats.py`): new keys in `.summary.json` — `cost_delta_ci_low_usd`, `cost_delta_ci_high_usd`, `effect_size_pct` — rendered as `[low, high] @ 95%, effect: X.X%`. `n_boot=10_000` default (auto-scales to 1k when N<20). Deterministic via seed. Stdlib only — no scipy. Effect-size center is **median** of paired Δ cost, robust to skewed cost distributions.
+- **`bench replay <csv>` subcommand** (new module `contextops_bench/replay.py`): re-runs the LLM call only, reusing the prompt structures saved in the source CSV. Preserves pair ordering so the cost-delta CI is directly comparable across replays. Useful for cross-provider comparison (Anthropic vs OpenAI vs Gemini on the same prompt set). Writes `<label>.replay.csv` and `<label>.replay.summary.json`. **No cost cap** — user responsibility, called out in README and CLI help text.
+
+### Changed
+- `contextops_bench.runner.summarize()` output schema extended additively; existing keys unchanged.
+
+### Tests
+- ~10 new tests across `tests/test_bench_stats.py`, `tests/test_bench_breakdown.py`, `tests/test_bench_replay.py`. Target: ≥63 passing (was 53).
+
+See `docs/PLAN_v0.3.3.md` for the full plan, decisions, and acceptance criteria.
+
 ## [0.3.2] — 2026-07-07
 
 This release ships the v0.3.1 cache-key regression fix plus the bench infrastructure needed to actually measure it (CI regression gate, direct OpenAI/Google providers), and adds a safety-net auto-default that closes the latent version of the same bug on the no-preset cloud path. See [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md) for the full story.

@@ -12,6 +12,7 @@ from typing import Callable, Iterable
 from contextops.models import Prompt
 from contextops.optimizer import reorder, count_tokens
 from contextops_bench.clients import BenchResult, CompletionResponse
+from contextops_bench.stats import bootstrap_ci, effect_size_pct
 
 
 # Sections treated as "stable" content (sent in the system message for
@@ -334,6 +335,18 @@ def summarize(
                 1,
             ),
         }
+        # Paired bootstrap CI on cost delta + median effect size (v0.3.3).
+        # Both arms iterate the same prompt_ids in the same insertion order
+        # because `run_batch` emits optimized before baseline for matched id.
+        opt_costs = [r.cost_usd for r in optimized]
+        base_costs = [r.cost_usd for r in baseline]
+        paired = list(zip(opt_costs, base_costs))
+        if paired:
+            paired_diffs = [o - b for o, b in paired]
+            ci_low, ci_high = bootstrap_ci(paired_diffs, n_boot=10_000, ci=0.95, seed=0)
+            summary["delta"]["cost_delta_ci_low_usd"] = ci_low
+            summary["delta"]["cost_delta_ci_high_usd"] = ci_high
+            summary["delta"]["effect_size_pct"] = effect_size_pct(opt_costs, base_costs)
 
     return summary
 
@@ -412,4 +425,13 @@ def render_summary(summary: dict, label: str) -> str:
         sign = "+" if d["cost_per_call_delta_usd"] >= 0 else ""
         lines.append(f"  cost / call:       {sign}${d['cost_per_call_delta_usd']:.6f}")
         lines.append(f"  prompt tokens:     {d['prompt_tokens_delta_mean']:+.1f}")
+        if "cost_delta_ci_low_usd" in d:
+            lines.append(
+                f"  cost Δ CI @ 95%:  [${d['cost_delta_ci_low_usd']:+.6f}, "
+                f"${d['cost_delta_ci_high_usd']:+.6f}]"
+            )
+            lines.append(
+                f"  effect size:      {d['effect_size_pct']:+.2f}% "
+                f"(median, optimized vs baseline)"
+            )
     return "\n".join(lines)
