@@ -12,6 +12,7 @@ The goal is to exercise every code path in ContextOps:
 from __future__ import annotations
 
 import random
+from pathlib import Path
 from typing import Iterator
 
 from contextops.models import Prompt, HistoryMessage
@@ -103,44 +104,39 @@ QUERIES_CODE = [
 ]
 
 
-def _gen_random_text(min_words: int = 5, max_words: int = 30) -> str:
+def _gen_random_text(rng: random.Random, min_words: int = 5, max_words: int = 30) -> str:
     """Generate a random sentence of plausible-looking words."""
-    n = random.randint(min_words, max_words)
+    n = rng.randint(min_words, max_words)
     words = ["alpha", "beta", "gamma", "delta", "vector", "matrix", "tensor",
              "graph", "node", "edge", "cache", "queue", "stream", "batch",
              "kernel", "module", "schema", "index", "query", "result",
              "lorem", "ipsum", "dolor", "amet", "consectetur", "adipiscing"]
-    return " ".join(random.choices(words, k=n)) + "."
+    return " ".join(rng.choices(words, k=n)) + "."
 
 
-def _gen_documents(min_chars: int = 100, max_chars: int = 2000) -> str:
+def _gen_documents(rng: random.Random, min_chars: int = 100, max_chars: int = 2000) -> str:
     """Generate a long document blob."""
-    n_chars = random.randint(min_chars, max_chars)
+    n_chars = rng.randint(min_chars, max_chars)
     blob = []
     while sum(len(s) for s in blob) < n_chars:
-        blob.append(_gen_random_text(20, 60))
+        blob.append(_gen_random_text(rng, 20, 60))
     return "\n\n".join(blob)[:n_chars]
 
 
-def _gen_history(min_turns: int = 1, max_turns: int = 5) -> list[dict]:
+def _gen_history(rng: random.Random, min_turns: int = 1, max_turns: int = 5) -> list[dict]:
     """Generate a chat history."""
-    n = random.randint(min_turns, max_turns)
+    n = rng.randint(min_turns, max_turns)
     out = []
     for i in range(n):
         if i % 2 == 0:
-            out.append({"role": "user", "content": _gen_random_text(3, 12)})
+            out.append({"role": "user", "content": _gen_random_text(rng, 3, 12)})
         else:
-            out.append({"role": "assistant", "content": _gen_random_text(5, 20)})
+            out.append({"role": "assistant", "content": _gen_random_text(rng, 5, 20)})
     return out
 
 
-def _gen_context() -> str:
-    return _gen_random_text(50, 200)
-
-
-def _maybe(generator_fn, p: float = 0.7):
-    """50/50: include this section or not."""
-    return generator_fn() if random.random() < p else type(generator_fn())()
+def _gen_context(rng: random.Random) -> str:
+    return _gen_random_text(rng, 50, 200)
 
 
 def generate_one(
@@ -148,40 +144,47 @@ def generate_one(
     *,
     fixed_system: str | None = None,
     fixed_tools: str | None = None,
+    fixed_model: str | None = None,
 ) -> Prompt:
     """Generate a single random prompt.
 
     `fixed_system` / `fixed_tools` lock the system/tools section across all generated
     prompts — this simulates a real deployment where many requests share the same
     agent definition (and therefore benefit from cache).
+
+    `fixed_model` overrides the per-prompt model. Without it, generate_one() picks
+    a random model from `MODELS` (mostly cloud-only names) — which is the right
+    behavior for the offline `smoke`/echo bench, but wrong for `local` runs that
+    need every prompt to use a model that actually exists on Ollama/LM Studio.
     """
-    if seed is not None:
-        random.seed(seed)
+    # Use a LOCAL RNG so we never perturb the global `random` state (which other
+    # code in the process may depend on). Explicit seed → reproducible output.
+    rng = random.Random(seed) if seed is not None else random.Random()
 
-    lang_roll = random.random()
+    lang_roll = rng.random()
     if lang_roll < 0.7:
-        system_default = random.choice(SYSTEM_PROMPTS_EN)
-        query = random.choice(QUERIES_EN)
+        system_default = rng.choice(SYSTEM_PROMPTS_EN)
+        query = rng.choice(QUERIES_EN)
     elif lang_roll < 0.9:
-        system_default = random.choice(SYSTEM_PROMPTS_RU)
-        query = random.choice(QUERIES_RU)
+        system_default = rng.choice(SYSTEM_PROMPTS_RU)
+        query = rng.choice(QUERIES_RU)
     else:
-        system_default = random.choice(SYSTEM_PROMPTS_ZH)
-        query = random.choice(QUERIES_ZH)
+        system_default = rng.choice(SYSTEM_PROMPTS_ZH)
+        query = rng.choice(QUERIES_ZH)
 
-    if random.random() < 0.3:
-        query = random.choice(QUERIES_CODE)
+    if rng.random() < 0.3:
+        query = rng.choice(QUERIES_CODE)
 
     return Prompt(
         system=fixed_system if fixed_system is not None else system_default,
-        tools=fixed_tools if fixed_tools is not None else random.choice(TOOL_DEFS),
-        role=random.choice(ROLE_PROMPTS) if random.random() < 0.6 else "",
-        context=_gen_context() if random.random() < 0.5 else "",
-        documents=_gen_documents() if random.random() < 0.6 else "",
-        history=_gen_history() if random.random() < 0.5 else [],
+        tools=fixed_tools if fixed_tools is not None else rng.choice(TOOL_DEFS),
+        role=rng.choice(ROLE_PROMPTS) if rng.random() < 0.6 else "",
+        context=_gen_context(rng) if rng.random() < 0.5 else "",
+        documents=_gen_documents(rng) if rng.random() < 0.6 else "",
+        history=_gen_history(rng) if rng.random() < 0.5 else [],
         query=query,
-        model=random.choice(MODELS),
-        goal=random.choice(GOALS),
+        model=fixed_model if fixed_model is not None else rng.choice(MODELS),
+        goal=rng.choice(GOALS),
     )
 
 
@@ -191,19 +194,24 @@ def generate_many(
     *,
     fixed_system: str | None = None,
     fixed_tools: str | None = None,
+    fixed_model: str | None = None,
 ) -> Iterator[Prompt]:
     """Yield `n` random prompts. Reproducible via `seed`.
 
     Pass `fixed_system` / `fixed_tools` to simulate a real workload where many
     requests share the same agent definition (cache hit rate should grow across
     the batch).
+
+    Pass `fixed_model` to lock the model name across all generated prompts
+    (required for `local` runs against Ollama/LM Studio — the random default
+    pool is mostly cloud-only names).
     """
-    random.seed(seed)
     for i in range(n):
         yield generate_one(
             seed=seed + i,
             fixed_system=fixed_system,
             fixed_tools=fixed_tools,
+            fixed_model=fixed_model,
         )
 
 
@@ -221,3 +229,22 @@ EDGE_CASES: list[Prompt] = [
     Prompt(history=[HistoryMessage(role="user", content="str"), "bare string"]),
     Prompt(system="A\nB\nC", tools="D\nE\nF", documents="\n\n\n"),  # weird whitespace
 ]
+
+
+# Realistic agent preset content lives in `data/` so it doesn't dominate this
+# module. Long enough to exceed OpenAI's 1024-token auto-cache threshold and
+# Anthropic's 1024/2048-token explicit cache minimums (Sonnet/Opus vs Haiku).
+# Total: ~6000+ tokens of stable system+tools content — a production agent whose
+# system prompt + tool definitions stay fixed across many calls (the realistic
+# scenario ContextOps exists to optimize).
+_DATA = Path(__file__).parent / "data"
+REALISTIC_AGENT_SYSTEM = (_DATA / "realistic_agent_system.md").read_text()
+REALISTIC_AGENT_TOOLS = (_DATA / "realistic_agent_tools.json").read_text()
+
+
+AGENT_PRESETS: dict[str, dict[str, str]] = {
+    "realistic": {
+        "system": REALISTIC_AGENT_SYSTEM,
+        "tools": REALISTIC_AGENT_TOOLS,
+    },
+}

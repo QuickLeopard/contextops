@@ -7,6 +7,7 @@ This is intentionally opt-in. Install with:
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from contextops.models import CallLog
@@ -26,7 +27,7 @@ def install_callback(db_path: str | None = None) -> None:
 
     from contextops.logger import Logger
 
-    logger = Logger(__import__("pathlib").Path(db_path) if db_path else None)
+    logger = Logger(Path(db_path) if db_path else None)
 
     def _callback(
         kwargs: dict[str, Any],

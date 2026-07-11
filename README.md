@@ -285,7 +285,7 @@ litellm.completion(model="gpt-4o", messages=[{"role": "user", "content": "hi"}])
 
 ## 🧪 Bench harness
 
-1000+ prompts through Ollama, LM Studio, or OpenRouter:
+1000+ prompts through Ollama, LM Studio, OpenRouter, or direct Anthropic API:
 
 ```bash
 # Smoke (10 prompts, <30s, no LLM, for CI)
@@ -297,9 +297,32 @@ python -m contextops_bench local --provider ollama --model llama3.1:8b --n 100
 # Cloud (1000 prompts via OpenRouter, 3 models, parallel)
 export OPENROUTER_API_KEY=sk-or-v1-...
 python -m contextops_bench cloud --provider openrouter \
-    --model openai/gpt-4o-mini,anthropic/claude-3.5-haiku,meta-llama/llama-3.1-8b-instruct \
+    --model openai/gpt-4o-mini,anthropic/claude-haiku-4.5,meta-llama/llama-3.1-8b-instruct \
     --n 1000 --parallel 4
+
+# Direct Anthropic API (definitive cache signal — surfaces cache_read_input_tokens)
+export ANTHROPIC_API_KEY=sk-ant-...
+python -m contextops_bench direct --provider direct_anthropic \
+    --model anthropic/claude-haiku-4.5 --n 100 --preset-agent realistic
 ```
+
+### `--preset-agent realistic`
+
+Cache-control only activates when the stable prefix exceeds the provider's
+token minimum (1024 for Sonnet/Opus, 2048 for Haiku). The `realistic` preset
+loads a ~6000-token "Atlas" engineering-agent system prompt + tool schema so
+cache hits are non-zero on cloud providers. **Required for meaningful
+`cache_hit_rate` on cloud runs.**
+
+### Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `ANTHROPIC_API_KEY` | Required for `--provider direct_anthropic`. |
+| `OPENROUTER_API_KEY` | Required for `--provider openrouter`. |
+| `OPENROUTER_CACHE_MODE` | `per_block` (default) or `top_level` — how the cache_control marker is placed for Anthropic models. |
+| `OPENROUTER_PROVIDER_PIN` | Pin to a specific upstream (e.g. `anthropic`) to avoid Bedrock/Vertex routing that busts the cache. |
+| `OPENROUTER_DEBUG_PROVIDER` | Set to `1` to print the upstream provider + cache hit count per call. |
 
 Each run writes:
 

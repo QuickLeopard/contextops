@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Prompt.render_order` field** (public API): when set, `Prompt.sections()` yields in that order instead of declaration order. Replaces the private `_bench_render_order` monkeypatch that previously crossed the library/bench package boundary.
+- **Shared `contextops.pricing` module** — a single source of truth for model pricing (`Price`, `PRICING`, `estimate_cost()`). Reconciles three previously-divergent pricing tables. Exported from the top-level package.
+- **`BenchClient` Protocol** (`contextops_bench.client_protocol`): the implicit client contract is now explicit and runtime-checkable. `EchoClient` conforms (LSP fixed — it now accepts the `system` kwarg).
+- **`CLIENTS` provider registry** (`contextops_bench.clients`): single source for the provider list; the CLI `--provider` choices derive from it.
+- **`contextops_bench/types.py`**: `BenchResult` and `CompletionResponse` moved out of `clients.py` to break an import cycle with the Protocol.
+- Tests: `_percentile`, `save_csv` empty-input, `run_one` system-passing, EchoClient LSP regression, OpenRouter `_shape_messages`/`_apply_provider_pinning`/`_maybe_debug`, registry, Protocol conformance, and full CLI coverage (`test_cli.py`). Test count: 39 → 73.
+
+### Changed
+- **`OpenRouterClient.complete` decomposed** from a 135-line god method into `_shape_messages`, `_apply_provider_pinning`, `_maybe_debug`. Environment-variable reads moved from per-call to the constructor.
+- **Cost estimation centralized**: `AnthropicDirectClient` and `OpenRouterClient` now call the shared `estimate_cost()` instead of maintaining their own `PRICING` dicts and inline `1_000_000` cost math.
+- **`runner.run_one` simplified**: the `**complete_kwargs` conditional is gone (every client now accepts `system=None`).
+- **`_render_prompt` simplified**: now 5 lines — `Prompt.sections()` respects `render_order` directly, so the `getattr` ladder is removed.
+- **`_make_fresh_client` → `_reset_client_state`**: honestly named (it mutates in place, doesn't return a fresh instance).
+- **`prompt_factory`**: global `random.seed()` calls replaced with local `random.Random` instances (no longer perturbs the global RNG). Realistic-agent preset content moved to `contextops_bench/data/` data files (module shrank from ~422 to ~250 lines).
+- **`__main__._execute` decomposed** into `_resolve_preset`, `_build_prompt_list`, `_write_artifacts`. Stale docstring updated (`bench.smoke` → `contextops_bench smoke`).
+
+### Fixed
+- **Pricing drift**: `claude-haiku-4.5` was `$0.80/M` in `optimizer.py` but `$1.00/M` in the bench clients. Now a single reconciled value (`$1.00/M`) via the shared module.
+- **Fake p95 percentile**: `runner._stats` used `sorted(latencies)[int(len*0.95)]`, which silently returned `0.0` for `n<20` and indexed incorrectly. Replaced with a correct nearest-rank `_percentile` helper.
+- **`smoke`/`run_all` args mutation**: `smoke()` mutated the shared `args` Namespace, corrupting the subsequent `_execute` call in `run_all`. Now operates on a shallow copy.
+- **`save_csv` silent no-op**: empty input previously wrote a headerless file indistinguishable from "no rows"; now raises `ValueError`.
+- **Narrowed bare `except`** in `OllamaClient.list_models` to `(URLError, ValueError, KeyError)`.
+- **Stale `__version__`**: `__init__.py` reported `0.2.0` while packaging said `0.3.0` (already corrected in-tree pre-refactor).
+- Removed dead code: `_maybe` helper (buggy + unused), `EDGE_CASE_PROMPT_IDS` global (never populated), `__import__("time"/"json")` dances, redundant `or 0` in cache-token parsing.
+
+### Removed
+- `_bench_render_order` private attribute and both associated `# type: ignore[attr-defined]` suppressions.
+- Duplicate `PRICING` dicts from `AnthropicDirectClient` and `OpenRouterClient`.
+
+### Internal
+- Diagnostic cache-control probes (`diag_*.py`) moved from repo root to `scripts/diag/` with a README. Fixed the broken hardcoded path in `diag_pinned_v2.py`.
+
 ## [0.3.0] — 2026-07-04
 
 ### Changed

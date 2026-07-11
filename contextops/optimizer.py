@@ -7,6 +7,7 @@ import hashlib
 import tiktoken
 
 from contextops.models import OptimizationResult, Prompt, Section
+from contextops.pricing import PRICING, Price
 
 # Canonical ordering — most stable first.
 # This mirrors the Anthropic/OpenAI best-practice recommendation:
@@ -19,19 +20,6 @@ _STABILITY_ORDER: dict[Section, int] = {
     "documents": 4,
     "history": 5,
     "query": 6,     # most variable
-}
-
-# Approximate $/1M tokens (input) — refresh quarterly.
-_PRICING = {
-    "gpt-4o": 2.50,
-    "gpt-4o-mini": 0.15,
-    "gpt-5": 5.00,
-    "claude-opus-4.6": 15.00,
-    "claude-sonnet-4.6": 3.00,
-    "claude-haiku-4.5": 0.80,
-    "qwen3-30b": 0.20,
-    "gigachat": 0.10,
-    "yandexgpt": 0.10,
 }
 
 # Cache hit rates by ordering strategy — empirical estimates.
@@ -103,8 +91,8 @@ def reorder(p: Prompt) -> Prompt:
     """Return a NEW Prompt with sections reordered for cache friendliness.
 
     The original `history` (list of HistoryMessage) is preserved as-is.
-    Sets `_bench_render_order` so callers that respect it (e.g. the bench
-    harness) render sections in the new order instead of declaration order.
+    Sets `render_order` so callers that respect it (e.g. the bench harness)
+    render sections in the new order instead of declaration order.
     """
     new = p.model_copy(deep=True)
     original_history = list(new.history)
@@ -122,7 +110,7 @@ def reorder(p: Prompt) -> Prompt:
             new.history = original_history
         else:
             setattr(new, sec, content)
-    new._bench_render_order = [s[0] for s in new_sections]  # type: ignore[attr-defined]
+    new.render_order = [s[0] for s in new_sections]
     return new
 
 
@@ -160,7 +148,7 @@ def optimize(p: Prompt) -> OptimizationResult:
         )
 
     # Rough savings: assume 1000 calls/day, each with avg prompt size.
-    price_per_m = _PRICING.get(p.model, 1.0)
+    price_per_m = PRICING.get(p.model, Price(1.0, 1.0)).input_per_m
     cost_per_call_baseline = (original_tokens / 1_000_000) * price_per_m
     cost_per_call_optimized = (
         (optimized_tokens / 1_000_000) * price_per_m * (1 - hit_rate)

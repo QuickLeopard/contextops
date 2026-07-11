@@ -41,6 +41,9 @@ contextops = "contextops.cli:main"
 where = ["."]
 include = ["contextops*", "contextops_bench*"]
 
+[tool.setuptools.package-data]
+contextops_bench = ["data/*.md", "data/*.json"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

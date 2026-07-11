@@ -1,0 +1,98 @@
+[
+  {
+    "name": "search_code",
+    "description": "Search a code repository for files matching a query. Returns file paths with line numbers and a short snippet of the match. Use this before reading a file directly — it's cheaper and gives you orientation. Supports regex. If a search returns too many results, narrow with `path` or use `max_results` to cap. Search is case-insensitive by default; pass `case_sensitive: true` to disable. Results are returned in git-relevance order (most-touched files first), not lexical order.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {"type": "string", "description": "Search query. Supports regex (RE2 syntax)."},
+        "path": {"type": "string", "description": "Subdirectory to scope the search, relative to repo root. Default: repo root."},
+        "max_results": {"type": "integer", "description": "Max files to return. Default 20, max 100."},
+        "case_sensitive": {"type": "boolean", "description": "Disable case-insensitive matching. Default false."},
+        "include_globs": {"type": "array", "items": {"type": "string"}, "description": "Only search files matching these globs (e.g. ['*.py', '*.ts'])."},
+        "exclude_globs": {"type": "array", "items": {"type": "string"}, "description": "Skip files matching these globs (e.g. ['node_modules/*', 'dist/*'])."}
+      },
+      "required": ["query"]
+    }
+  },
+  {
+    "name": "read_file",
+    "description": "Read a file from the repository. Returns the file contents with line numbers (cat -n style). For large files, prefer reading specific line ranges via start_line / end_line to save context. Reading more than 500 lines in one call is usually a sign you should narrow your scope. Files are returned as UTF-8; binary files are not supported via this tool — use a different mechanism for binaries.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {"type": "string", "description": "Path relative to repo root."},
+        "start_line": {"type": "integer", "description": "1-indexed start line. Default 1."},
+        "end_line": {"type": "integer", "description": "1-indexed end line (inclusive). Default: end of file."},
+        "max_lines": {"type": "integer", "description": "Cap on lines returned, regardless of end_line. Default 500."}
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "run_command",
+    "description": "Execute a shell command in the repository root. Returns stdout, stderr, and exit code as a single response. 30-second default timeout. Use for tests, builds, linters, type checkers, package install — not for arbitrary code execution or interactive commands. The command must be non-interactive (no TTY prompts, no `vim`, no `less`, no `ssh`). Commands that take longer than 30s should be split or use a longer timeout_seconds override.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "command": {"type": "string", "description": "The command to run. Must be non-interactive."},
+        "timeout_seconds": {"type": "integer", "description": "Override default 30s timeout. Max 300s."},
+        "working_dir": {"type": "string", "description": "Override the working directory. Default: repo root."},
+        "env": {"type": "object", "description": "Additional environment variables, e.g. {"NODE_ENV": "test"}. Merged with the default env."}
+      },
+      "required": ["command"]
+    }
+  },
+  {
+    "name": "edit_file",
+    "description": "Apply a unified-diff patch to a file. The patch must apply cleanly against the current file contents. Returns success or a unified-diff error showing the mismatch (hunk failed, line numbers off, etc). Prefer small, focused patches over large rewrites. A patch that touches more than 50 lines is probably too big — split it. Always include 3 lines of context above and below each hunk to make application robust. If the file doesn't exist, the patch must include `new file mode` and the full content.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {"type": "string", "description": "Path relative to repo root."},
+        "patch": {"type": "string", "description": "Unified diff format. Must be a complete diff (with `--- a/path` and `+++ b/path` headers)."},
+        "explanation": {"type": "string", "description": "One-sentence summary of the change. Shown in the change log."},
+        "dry_run": {"type": "boolean", "description": "If true, validate the patch but don't write. Default false."}
+      },
+      "required": ["path", "patch"]
+    }
+  },
+  {
+    "name": "list_directory",
+    "description": "List the contents of a directory. Returns a tree-like view of files and subdirectories, two levels deep. Use to orient before reading specific files. Hidden files (starting with .) are excluded by default. Directories are listed first, then files, both sorted alphabetically. Sizes are not shown — use run_command with `du -sh` if you need sizes.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {"type": "string", "description": "Directory path, relative to repo root. Default: repo root."},
+        "max_depth": {"type": "integer", "description": "How deep to recurse. Default 2, max 5."},
+        "include_hidden": {"type": "boolean", "description": "Include files starting with `.`. Default false."}
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "git_log",
+    "description": "Show recent git commits. Returns commit hash, author, timestamp, and message. Use to understand who touched what recently and why. The default format is one-line. For deeper inspection, use `git_show` (separate tool). Useful for diagnosing regressions: 'when did this file last change' and 'what's the history of this function'.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {"type": "string", "description": "Filter to commits touching this path. Default: all commits."},
+        "max_commits": {"type": "integer", "description": "How many recent commits to show. Default 20, max 100."},
+        "author": {"type": "string", "description": "Filter by author (name or email substring)."},
+        "since": {"type": "string", "description": "ISO date or relative (e.g. '2 weeks ago'). Default: last 90 days."}
+      }
+    }
+  },
+  {
+    "name": "git_show",
+    "description": "Show a specific commit's diff. Returns the full patch and metadata for one commit. Use after git_log to inspect a suspicious commit. Pair with the commit hash from git_log.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "commit": {"type": "string", "description": "Commit hash (full or short). Required."},
+        "path": {"type": "string", "description": "Restrict the diff to this path. Default: all paths in the commit."}
+      },
+      "required": ["commit"]
+    }
+  }
+]

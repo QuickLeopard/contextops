@@ -71,3 +71,16 @@ def test_empty_prompt_safe():
     assert r.optimized_tokens == 0
     # Empty prompt = baseline hit rate (no sections to optimize).
     assert r.estimated_cache_hit_rate == 0.05
+
+
+def test_prompt_sections_respects_render_order():
+    """`sections()` yields in declaration order by default, and in `render_order` when set."""
+    p = Prompt(system="S", query="Q")
+    # Default: declaration order.
+    assert [s[0] for s in p.sections()] == ["system", "query"]
+    # When render_order is set, sections() yields in that order.
+    p.render_order = ["query", "system"]
+    assert [s[0] for s in p.sections()] == ["query", "system"]
+    # render_order referencing absent sections is ignored.
+    p.render_order = ["query", "documents", "system"]
+    assert [s[0] for s in p.sections()] == ["query", "system"]

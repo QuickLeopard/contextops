@@ -57,6 +57,9 @@ contextops.db
 # bench/results/*.summary.json
 bench/results/
 
+# --- Local agent/CLI session data ---
+.zcode/
+
 # --- Secrets / env ---
 .env
 .env.local

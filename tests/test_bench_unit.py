@@ -76,27 +76,33 @@ def test_get_client_factory():
 
 
 def test_run_batch_alternates_optimized_baseline():
+    """cache_warm=False: each prompt runs twice (optimized + baseline), alternating."""
     prompts = list(generate_many(n=10, seed=42))
     client = EchoClient()
     results = run_batch(prompts, client=client, parallel=1, cache_warm=False)
-    assert len(results) == 10
-    # Even ids = optimized, odd = baseline (when cache_warm=False)
-    even_results = [r for r in results if r.prompt_id % 2 == 0]
-    odd_results = [r for r in results if r.prompt_id % 2 == 1]
-    assert len(even_results) == 5
-    assert len(odd_results) == 5
+    # 2n: optimized + baseline for each of 10 prompts.
+    assert len(results) == 20
+    # cache_warm=False alternates: [opt, base, opt, base, ...]
+    use_opt_seq = [r.use_optimized for r in results]
+    assert use_opt_seq == [True, False] * 10
+    # Every prompt_id appears exactly twice (once optimized, once baseline).
+    ids = [r.prompt_id for r in results]
+    assert ids == [i for i in range(10) for _ in (0, 1)]
+    # Each (prompt_id, use_optimized) pair is unique.
+    assert len({(r.prompt_id, r.use_optimized) for r in results}) == 20
 
 
 def test_run_batch_cache_warm_mode():
-    """In cache_warm=True (default), first half = optimized, second half = baseline."""
+    """In cache_warm=True (default): first half = all optimized, second half = all baseline."""
     prompts = list(generate_many(n=10, seed=42))
     client = EchoClient()
     results = run_batch(prompts, client=client, parallel=1, cache_warm=True)
-    # First 5 prompt_ids should be optimized (section_order starts with "system")
-    # Last 5 should be baseline (section_order may differ — though reorder still applies).
-    # With random generation, optimized and baseline differ only in token delta, not section.
-    # What matters: all 10 ran, prompt_ids 0..9 exist.
-    assert sorted(r.prompt_id for r in results) == list(range(10))
+    # 2n results: 10 optimized + 10 baseline.
+    assert len(results) == 20
+    # First half all optimized (prompt_ids 0..9), second half all baseline (prompt_ids 0..9).
+    use_opt_seq = [r.use_optimized for r in results]
+    assert use_opt_seq == [True] * 10 + [False] * 10
+    assert [r.prompt_id for r in results] == list(range(10)) * 2
 
 
 def test_save_csv_roundtrip(tmp_path):
@@ -110,7 +116,7 @@ def test_save_csv_roundtrip(tmp_path):
     with csv_path.open() as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-    assert len(rows) == 5
+    assert len(rows) == 10  # 5 prompts × 2 (optimized + baseline)
     assert "prompt_id" in rows[0]
     assert "provider" in rows[0]
 
@@ -123,8 +129,9 @@ def test_summarize_basic_stats():
     assert "optimized" in s
     assert "baseline" in s
     assert "delta" in s
-    assert s["optimized"]["n"] == 10
-    assert s["baseline"]["n"] == 10
+    # 20 prompts × 2 arms = 40 results, split evenly: 20 optimized + 20 baseline.
+    assert s["optimized"]["n"] == 20
+    assert s["baseline"]["n"] == 20
     assert s["optimized"]["errors"] == 0
 
 
@@ -167,7 +174,97 @@ def test_smoke_under_30_seconds():
     results = run_batch(prompts, client=client, parallel=1, cache_warm=False)
     elapsed = time.time() - t0
     assert elapsed < 30.0
-    assert len(results) == len(prompts)
+    # Each prompt runs twice (optimized + baseline).
+    assert len(results) == 2 * len(prompts)
     # No errors expected
     errors = [r for r in results if r.error]
     assert len(errors) == 0
+
+
+# --- Phase 11 backfill: percentile, save_csv, run_one, render_order ---
+
+def test_percentile_small_n():
+    """Nearest-rank p95 of [1..10] = 10 (rank = ceil(9.5) = 10 → the max)."""
+    from contextops_bench.runner import _percentile
+    assert _percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 95) == 10
+
+
+def test_percentile_empty():
+    from contextops_bench.runner import _percentile
+    assert _percentile([], 95) == 0.0
+
+
+def test_percentile_large_n():
+    """p95 of [1]*100 + [999] should be 1 (the 95th percentile by nearest-rank)."""
+    from contextops_bench.runner import _percentile
+    values = [1] * 100 + [999]
+    # rank = ceil(0.95 * 101) = ceil(95.95) = 96 → sorted[95]. First 100 are 1s.
+    assert _percentile(values, 95) == 1
+
+
+def test_save_csv_empty_raises():
+    """save_csv on empty input should raise (fail loud, not write a headerless file)."""
+    import pytest
+    from contextops_bench.runner import save_csv
+    with pytest.raises(ValueError, match="no results"):
+        save_csv([], "/tmp/should_not_exist.csv")
+
+
+def test_run_one_passes_system_when_supported():
+    """run_one must pass system= to clients that support split messages."""
+    from contextops.models import Prompt
+    from contextops_bench.runner import run_one
+
+    class RecordingClient:
+        PROVIDER = "test"
+        supports_split_messages = True
+        captured_system = None
+
+        def complete(self, *, model, messages, temperature=0.0, max_tokens=64, system=None):
+            self.captured_system = system
+            from contextops_bench.types import CompletionResponse
+            return CompletionResponse(
+                text="ok", prompt_tokens=10, completion_tokens=2,
+                cached_tokens=0, cost_usd=0.0, model=model, raw={},
+            )
+
+    p = Prompt(system="STABLE PREFIX", query="variable question")
+    client = RecordingClient()
+    run_one(p, prompt_id=0, client=client, use_optimized=True)
+    assert client.captured_system == "STABLE PREFIX"
+
+
+def test_run_one_passes_none_system_when_not_supported():
+    """run_one must NOT split when the client lacks supports_split_messages."""
+    from contextops.models import Prompt
+    from contextops_bench.runner import run_one
+
+    class RecordingClient:
+        PROVIDER = "test"
+        supports_split_messages = False
+        captured_system = "SENTINEL"
+
+        def complete(self, *, model, messages, temperature=0.0, max_tokens=64, system=None):
+            self.captured_system = system
+            from contextops_bench.types import CompletionResponse
+            return CompletionResponse(
+                text="ok", prompt_tokens=10, completion_tokens=2,
+                cached_tokens=0, cost_usd=0.0, model=model, raw={},
+            )
+
+    p = Prompt(system="STABLE", query="Q")
+    client = RecordingClient()
+    run_one(p, prompt_id=0, client=client, use_optimized=True)
+    # Not supported → system should be None (everything in one user message).
+    assert client.captured_system is None
+
+
+def test_echo_client_accepts_system_kwarg():
+    """LSP regression: EchoClient.complete must accept system= (Phase 5.2)."""
+    client = EchoClient()
+    resp = client.complete(
+        model="echo-model",
+        messages=[{"role": "user", "content": "hello world test message"}],
+        system="some system prompt",
+    )
+    assert resp.prompt_tokens > 0

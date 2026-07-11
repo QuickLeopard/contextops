@@ -1,20 +1,23 @@
 """Run benchmarks from the CLI.
 
 Usage:
-    python -m bench.smoke
-    python -m bench.local --provider ollama --n 100 --model llama3.1:8b
-    python -m bench.cloud --provider openrouter --n 1000 --models gpt-4o-mini,claude-3.5-haiku
-    python -m bench.run_all --provider echo --n 1000
+    python -m contextops_bench smoke
+    python -m contextops_bench local --provider ollama --n 100 --model llama3.1:8b
+    python -m contextops_bench direct --provider direct_anthropic --n 100
+    python -m contextops_bench cloud --provider openrouter --n 1000 --model gpt-4o-mini,anthropic/claude-haiku-4.5
+    python -m contextops_bench run_all --provider echo --n 1000
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import time
 from pathlib import Path
 
-from contextops_bench.clients import get_client
-from contextops_bench.prompt_factory import generate_many, EDGE_CASES
+from contextops_bench.clients import CLIENTS, get_client
+from contextops_bench.prompt_factory import generate_many, EDGE_CASES, AGENT_PRESETS
 from contextops_bench.runner import (
     render_summary,
     run_batch,
@@ -25,9 +28,10 @@ from contextops_bench.runner import (
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--provider", default="echo",
-                        choices=["echo", "ollama", "lmstudio", "openrouter"])
+                        choices=sorted(CLIENTS))
     parser.add_argument("--model", default=None,
-                        help="Model name (provider-specific). If unset, uses provider default.")
+                        help="Model name (provider-specific). If unset, uses provider default. "
+                             "For `cloud` subcommand, comma-separated runs each model.")
     parser.add_argument("--n", type=int, default=100)
     parser.add_argument("--parallel", type=int, default=1)
     parser.add_argument("--out", type=Path, default=Path("bench/results"))
@@ -37,6 +41,12 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
                              "(simulates a real agent workload — enables cache hits)")
     parser.add_argument("--fixed-tools", default=None,
                         help="Lock the tools section across all generated prompts")
+    parser.add_argument("--preset-agent", default=None, choices=list(AGENT_PRESETS.keys()),
+                        help="Load a preset system prompt + tool schema. "
+                             "Required for cache_hit_rate to be non-zero on cloud providers "
+                             "since both OpenAI and Anthropic have token minimums "
+                             "(1024 for Sonnet/Opus, 2048 for Haiku). "
+                             "Overrides --fixed-system/--fixed-tools if set.")
 
 
 def _make_client_and_model(args) -> tuple:
@@ -55,42 +65,68 @@ def _make_client_and_model(args) -> tuple:
     return client, model
 
 
-def _execute(args, *, label: str, n: int, include_edge_cases: bool = False) -> int:
-    client, model = _make_client_and_model(args)
+def _resolve_preset(args) -> tuple[str | None, str | None]:
+    """Resolve --preset-agent / --fixed-system / --fixed-tools into (system, tools)."""
+    fixed_system = args.fixed_system
+    fixed_tools = args.fixed_tools
+    if args.preset_agent:
+        preset = AGENT_PRESETS[args.preset_agent]
+        fixed_system = fixed_system or preset["system"]
+        fixed_tools = fixed_tools or preset["tools"]
+        print(f"[bench] preset-agent={args.preset_agent}  "
+              f"system~{len(fixed_system)} chars  tools~{len(fixed_tools)} chars")
+    return fixed_system, fixed_tools
 
-    # Override model on client if possible
-    if hasattr(client, "default_model"):
-        model = client.default_model  # type: ignore[attr-defined]
 
-    print(f"[bench] provider={args.provider}  model={model}  n={n}  parallel={args.parallel}")
+def _build_prompt_list(
+    *, n: int, fixed_system: str | None, fixed_tools: str | None, model: str,
+    include_edge_cases: bool,
+) -> tuple[list, list[int]]:
+    """Generate `n` prompts, optionally interleaving edge cases.
 
+    Returns (prompts, edge_ids) where edge_ids is the list of prompt indices
+    that are degenerate edge cases (excluded from headline stats). Edge cases
+    are split half-before / half-after the generated prompts so half land in
+    the optimized phase and half in the baseline phase of `run_batch`.
+    """
     generated = list(generate_many(
         n=n, seed=42,
-        fixed_system=args.fixed_system,
-        fixed_tools=args.fixed_tools,
+        fixed_system=fixed_system,
+        fixed_tools=fixed_tools,
+        fixed_model=model,
     ))
-    prompts: list = []
-    edge_ids: list[int] = []
+    if not include_edge_cases:
+        return generated, []
+    half_edge = len(EDGE_CASES) // 2
+    prompts = list(EDGE_CASES[:half_edge]) + generated + list(EDGE_CASES[half_edge:])
+    edge_ids = list(range(0, half_edge)) + list(range(n + half_edge, n + len(EDGE_CASES)))
+    return prompts, edge_ids
 
-    if include_edge_cases:
-        # Interleave edge cases evenly with generated prompts so half go to
-        # optimized phase and half to baseline phase. With 10 edge cases and
-        # n generated, drop ~half of edge cases into the first half of the
-        # prompts list and the rest into the second half.
-        half_edge = len(EDGE_CASES) // 2
-        # Take the first half_edge edge cases and prepend them to generated.
-        # Take the second half_edge edge cases and append them to generated.
-        prompts = list(EDGE_CASES[:half_edge]) + generated + list(EDGE_CASES[half_edge:])
-        # Edge case prompt_ids: 0..half_edge-1 and n+half_edge..n+len(EDGE_CASES)-1
-        edge_ids = list(range(0, half_edge)) + list(range(n + half_edge, n + len(EDGE_CASES)))
-    else:
-        prompts = generated
+
+def _write_artifacts(out_dir: Path, label: str, results, summary: dict) -> Path:
+    """Write CSV + summary JSON to `out_dir`. Returns the CSV path."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = out_dir / f"{label}.csv"
+    save_csv(results, csv_path)
+    (out_dir / f"{label}.summary.json").write_text(json.dumps(summary, indent=2))
+    return csv_path
+
+
+def _execute(args, *, label: str, n: int, include_edge_cases: bool = False) -> int:
+    client, model = _make_client_and_model(args)
+    fixed_system, fixed_tools = _resolve_preset(args)
+    print(f"[bench] provider={args.provider}  model={model}  n={n}  parallel={args.parallel}")
+
+    prompts, edge_ids = _build_prompt_list(
+        n=n, fixed_system=fixed_system, fixed_tools=fixed_tools,
+        model=model, include_edge_cases=include_edge_cases,
+    )
 
     def _on_progress(done: int, total: int) -> None:
         if done % max(1, total // 10) == 0 or done == total:
             print(f"  progress: {done}/{total}", flush=True)
 
-    t0 = __import__("time").time()
+    t0 = time.time()
     results = run_batch(
         prompts,
         client=client,
@@ -98,28 +134,25 @@ def _execute(args, *, label: str, n: int, include_edge_cases: bool = False) -> i
         label=label,
         on_progress=_on_progress,
     )
-    elapsed = __import__("time").time() - t0
-
-    out_dir: Path = args.out
-    out_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = out_dir / f"{label}.csv"
-    save_csv(results, csv_path)
+    elapsed = time.time() - t0
 
     summary = summarize(results, exclude_ids=set(edge_ids))
-    text = render_summary(summary, label)
+    csv_path = _write_artifacts(args.out, label, results, summary)
+
     print()
-    print(text)
+    print(render_summary(summary, label))
     print(f"\n[bench] elapsed: {elapsed:.1f}s  ({elapsed / max(1, n):.2f}s/call)")
     print(f"[bench] csv:     {csv_path}")
-
-    (out_dir / f"{label}.summary.json").write_text(
-        __import__("json").dumps(summary, indent=2)
-    )
     return 0
 
 
 def smoke(args) -> int:
-    """Tiny offline bench — must run in <30s, no LLM."""
+    """Tiny offline bench — must run in <30s, no LLM.
+
+    Operates on a shallow copy of `args` so mutations don't leak back to the
+    caller (critical for `run_all`, which calls `smoke` then reuses `args`).
+    """
+    args = argparse.Namespace(**vars(args))  # shallow copy
     args.provider = "echo"
     args.parallel = 1
     args.n = 10
@@ -160,6 +193,10 @@ def main() -> int:
     p_local = sub.add_parser("local", help="Run against local LLM (Ollama/LM Studio)")
     _add_common_args(p_local)
     p_local.set_defaults(func=local)
+
+    p_direct = sub.add_parser("direct", help="Run against direct API (no OpenRouter) — definitive cache signal")
+    _add_common_args(p_direct)
+    p_direct.set_defaults(func=local)
 
     p_cloud = sub.add_parser("cloud", help="Run against OpenRouter (1+ models)")
     _add_common_args(p_cloud)

@@ -51,6 +51,10 @@ class Prompt(BaseModel):
 
     model: str = "gpt-4o"
     goal: Literal["cache_friendly", "balanced", "quality"] = "cache_friendly"
+    # When set, `sections()` yields in this order instead of declaration order.
+    # `reorder()` and the bench's `_reverse_prompt()` set this so callers see the
+    # new order without a private-attr monkeypatch. None = declaration order.
+    render_order: Optional[list[Section]] = None
 
     def sections(self) -> list[tuple[Section, str]]:
         """All non-empty sections as (name, content) tuples. Order doesn't matter here."""
@@ -72,6 +76,9 @@ class Prompt(BaseModel):
             out.append(("history", rendered))
         if self.query:
             out.append(("query", self.query))
+        if self.render_order is not None:
+            by_name = dict(out)
+            return [(name, by_name[name]) for name in self.render_order if name in by_name]
         return out
 
 
