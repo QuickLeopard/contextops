@@ -158,10 +158,11 @@ Each finding: **location**, **why it's a decomposition problem**, **severity**. 
 - **Why it's structural:** It does argument parsing (Click decorators), prompt construction from JSON/files (`optimize`, L66-90), presentation (`_render_optimization` L94, `_render_eval_report` L327), and service selection (`_pick_real_judge` L292, `_pick_run_fn` L303). The presentation helpers in particular belong with `report.py`, which already owns table rendering. Not egregious at 375 lines, but it's the one module that imports *every* other module and carries presentation logic that has nothing to do with CLI wiring.
 - **Root cause:** Convenience — rendering was written next to the command that calls it.
 
-#### F-8 — `Prompt` model bundles content with optimization config `[Low]`
+#### F-8 — `Prompt` model bundles content with optimization config `[Low]` — **DEFERRED**
 - **Where:** `contextops/models.py:33-53`. `Prompt` carries content fields (`system`, `tools`, …, `query`) *and* optimization knobs (`model` L52, `goal` L53).
 - **Why it's structural:** "What the prompt is" is coupled to "how to optimize it." This forces every place that builds a `Prompt` (including the bench's `prompt_factory`) to supply a `model`/`goal` even when it only cares about content, and it means `model`/`goal` get deep-copied by `reorder()` (`optimizer.py:109`) for no reason. Mild, but it muddies the model's single responsibility.
 - **Root cause:** No separate config object.
+- **Resolution (2026-07-11):** Deliberately deferred. Splitting into `OptimizationConfig(model, goal)` would break 20+ `Prompt(...)` construction sites (CLI `Prompt(**data)`, bench factory, 10 edge cases, examples) and add a required second argument to `optimize()`/`reorder()` — all to remove a trivial deep-copy of two scalar fields with defaults. The coupling is mild (callers who don't care leave defaults) and the change is a net ergonomic loss at current scale. Revisit if `Prompt` grows more optimization knobs or if `model`/`goal` need to vary independently of content in a pipeline.
 
 ### 4.4 Correctness bugs rooted in decomposition
 

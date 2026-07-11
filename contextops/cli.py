@@ -21,6 +21,7 @@ from rich.table import Table
 
 from contextops import __version__
 from contextops.clients import EchoJudge, LiteLLMJudge
+from contextops.cli_views import render_eval_report, render_optimization
 from contextops.dataset import DatasetItem, load as load_dataset
 from contextops.eval import compare as compare_prompts, evaluate_ab
 from contextops.judge import list_metrics
@@ -88,44 +89,7 @@ def optimize(
     from contextops.optimizer import optimize as run_optimize
 
     result = run_optimize(p)
-    _render_optimization(result)
-
-
-def _render_optimization(result) -> None:
-    table = Table(title="ContextOps Optimization", show_lines=False)
-    table.add_column("Metric", style="bold")
-    table.add_column("Original", justify="right")
-    table.add_column("Optimized", justify="right")
-
-    original_order = [s[0] for s in result.original_sections]
-    optimized_order = [s[0] for s in result.optimized_sections]
-
-    table.add_row(
-        "Section order",
-        " → ".join(original_order) or "(empty)",
-        " → ".join(optimized_order) or "(empty)",
-    )
-    table.add_row("Tokens", str(result.original_tokens), str(result.optimized_tokens))
-    table.add_row(
-        "Cache hit rate (est)",
-        f"{_baseline_hit(result.model):.1%}",
-        f"{result.estimated_cache_hit_rate:.1%}",
-    )
-    table.add_row(
-        "Cost savings / 1k calls",
-        "$0.00",
-        f"${result.estimated_cost_savings_usd:.4f}",
-    )
-
-    console.print(table)
-    if result.notes:
-        console.print("\n[bold]Notes:[/bold]")
-        for note in result.notes:
-            console.print(f"  • {note}")
-
-
-def _baseline_hit(model: str) -> float:
-    return 0.05
+    render_optimization(result)
 
 
 @main.command()
@@ -283,7 +247,7 @@ def eval(
             on_progress=_progress_wrapper,
         )
 
-    _render_eval_report(report)
+    render_eval_report(report)
     if output_path:
         Path(output_path).write_text(json.dumps(report, indent=2, ensure_ascii=False))
         console.print(f"\n[dim]Report written to {output_path}[/dim]")
@@ -322,41 +286,6 @@ def _pick_run_fn(choice: str, dataset: list[DatasetItem]):
             return ""
         return run_fn
     raise ValueError(f"Unknown run_fn: {choice}")
-
-
-def _render_eval_report(report: dict) -> None:
-    """Render an A/B eval report."""
-    console.rule("[bold]A/B Eval Report")
-
-    # Structural deltas
-    s = report["structural"]
-    stable = Table(title="Structural deltas", show_lines=False)
-    stable.add_column("Metric", style="bold")
-    stable.add_column("Value", justify="right")
-    stable.add_row("Tokens (Δ)", str(s["tokens"]))
-    stable.add_row("Cache hit rate (Δ)", f"{s['cache_hit_rate']:+.1%}")
-    stable.add_row("Cost savings / 1k calls (Δ)", f"${s['cost_savings_per_1k_usd']:+.4f}")
-    console.print(stable)
-
-    # Quality deltas
-    quality_table = Table(title="Quality deltas (judge scores)", show_lines=False)
-    quality_table.add_column("Metric", style="bold")
-    quality_table.add_column("Baseline", justify="right")
-    quality_table.add_column("Optimized", justify="right")
-    quality_table.add_column("Δ", justify="right")
-    quality_table.add_column("N", justify="right")
-
-    for metric, d in report["quality"].items():
-        b = f"{d['baseline_mean']:.3f}" if d.get("baseline_mean") is not None else "-"
-        o = f"{d['optimized_mean']:.3f}" if d.get("optimized_mean") is not None else "-"
-        delta = d["delta"]
-        delta_str = f"{delta:+.3f}"
-        if delta > 0.05:
-            delta_str = f"[green]{delta_str}[/green]"
-        elif delta < -0.05:
-            delta_str = f"[red]{delta_str}[/red]"
-        quality_table.add_row(metric, b, o, delta_str, str(d.get("n", 0)))
-    console.print(quality_table)
 
 
 @main.command()

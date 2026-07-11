@@ -89,7 +89,8 @@ class OptimizationResult(BaseModel):
     optimized_sections: list[tuple[Section, str]]
     original_tokens: int
     optimized_tokens: int
-    estimated_cache_hit_rate: float  # 0..1
+    original_cache_hit_rate: float   # 0..1, the un-optimized ordering
+    estimated_cache_hit_rate: float  # 0..1, the optimized ordering
     estimated_cost_savings_usd: float  # per 1000 calls (rough)
     model: str
     notes: list[str] = Field(default_factory=list)

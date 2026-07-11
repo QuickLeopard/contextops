@@ -127,6 +127,7 @@ def optimize(p: Prompt) -> OptimizationResult:
     original_tokens = _prompt_tokens(p)
     optimized_tokens = _prompt_tokens(optimized)
 
+    original_hit_rate = estimate_cache_hit(p, reordered=False)
     hit_rate = estimate_cache_hit(optimized, reordered=True)
     notes: list[str] = []
 
@@ -161,6 +162,7 @@ def optimize(p: Prompt) -> OptimizationResult:
         optimized_sections=optimized_sections,
         original_tokens=original_tokens,
         optimized_tokens=optimized_tokens,
+        original_cache_hit_rate=round(original_hit_rate, 3),
         estimated_cache_hit_rate=round(hit_rate, 3),
         estimated_cost_savings_usd=round(savings_per_1k, 4),
         model=p.model,

@@ -1,5 +1,11 @@
 # ContextOps — Refactor Plan
 
+> **Status: EXECUTED (2026-07-11).** All 13 phases landed in commit
+> `1f836f5` on branch `refactor/architecture-cleanup`. Tests went 39 → 73.
+> Retained here as a historical record. See `docs/CODE_REVIEW.md` for the
+> independent review that motivated it (and 4 additional findings not
+> covered by this plan, addressed separately).
+
 A detailed, step-by-step fix plan derived from the architecture review. Every
 step is **atomic** (one small change → one verification), and every phase ends
 **green** (`pytest` + `python -m contextops_bench smoke`). Commit after each
