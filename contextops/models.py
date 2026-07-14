@@ -81,6 +81,81 @@ class Prompt(BaseModel):
             return [(name, by_name[name]) for name in self.render_order if name in by_name]
         return out
 
+    # --- Importers for existing message lists ------------------------------
+    # Most teams already have a `messages = [{"role": ..., "content": ...}]`
+    # list. These classmethods build a `Prompt` from it without requiring a
+    # rewrite of their prompt-construction code.
+
+    @classmethod
+    def from_openai_messages(cls, messages: list[dict]) -> "Prompt":
+        """Build a Prompt from an OpenAI-style messages list.
+
+        Mapping:
+        - All `system` messages are concatenated into `system`.
+        - The final `user` message becomes `query`.
+        - Any prior `user`/`assistant` turns become `history` (in order).
+        - `tool` messages are ignored (they carry tool-call results, not prompt text).
+
+        This is a lossy import for the purpose of cache-aware reordering: it
+        preserves the text content in the right slots, not call/function metadata.
+        """
+        system_parts: list[str] = []
+        turns: list[dict] = []  # user/assistant turns in conversation order
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            # OpenAI content can be a list of parts (vision/tools); coerce to text.
+            if isinstance(content, list):
+                content = " ".join(
+                    p.get("text", "") for p in content if isinstance(p, dict)
+                )
+            if role == "system":
+                if content:
+                    system_parts.append(content)
+            elif role in ("user", "assistant"):
+                if content:
+                    turns.append({"role": role, "content": content})
+            # tool/function messages are dropped — not prompt text.
+
+        # The last user turn becomes the query; everything before it is history.
+        query = ""
+        history = turns
+        if turns and turns[-1]["role"] == "user":
+            history = turns[:-1]
+            query = turns[-1]["content"]
+        elif turns:
+            # No trailing user turn — keep all turns as history, leave query empty.
+            query = ""
+        return cls(
+            system="\n\n".join(system_parts),
+            history=history,
+            query=query,
+        )
+
+    @classmethod
+    def from_anthropic_messages(
+        cls, messages: list[dict], system: str | list | None = None,
+    ) -> "Prompt":
+        """Build a Prompt from an Anthropic-style messages list.
+
+        Anthropic keeps `system` as a separate top-level parameter (not in the
+        messages array). It may be a string or a list of content blocks.
+
+        Mapping is the same as `from_openai_messages` for the `messages` array;
+        the top-level `system` is concatenated into the `system` field.
+        """
+        prompt = cls.from_openai_messages(messages)
+        if isinstance(system, list):
+            sys_text = " ".join(
+                b.get("text", "") for b in system if isinstance(b, dict) and b.get("type") == "text"
+            )
+        else:
+            sys_text = system or ""
+        # Prepend the top-level system so it sorts to the front regardless.
+        if sys_text:
+            prompt.system = f"{sys_text}\n\n{prompt.system}".strip() if prompt.system else sys_text
+        return prompt
+
 
 class OptimizationResult(BaseModel):
     """Result of running `optimize()` or `reorder()` on a Prompt."""

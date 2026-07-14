@@ -12,52 +12,25 @@ from typing import Callable, Iterable
 
 from contextops.models import Prompt
 from contextops.optimizer import reorder, count_tokens
+from contextops.render import render_prompt as _render_public, split_prompt as _split_public
 from contextops_bench.clients import BenchResult, CompletionResponse
 
 
 # Sections treated as "stable" content (sent in the system message for
 # Anthropic cache_control). Anything not in this set is treated as variable
-# content (sent in the user message).
+# content (sent in the user message). Re-exported from the public module.
 STABLE_SECTIONS: frozenset[str] = frozenset({"system", "tools", "role"})
 
 
 def _render_prompt(p: Prompt) -> tuple[str, list[str]]:
-    """Render prompt to a single string + return its current section order.
-
-    `Prompt.sections()` already respects `render_order` (set by `reorder()` /
-    `_reverse_prompt()`), so we just join its output.
-    """
-    sections = p.sections()
-    parts = [content for _, content in sections]
-    order = [name for name, _ in sections]
-    return "\n\n".join(parts), order
+    """Delegate to the public `contextops.render.render_prompt`."""
+    return _render_public(p)
 
 
 def _split_prompt(p: Prompt) -> tuple[str, str, list[str]]:
-    """Split a prompt into (system_content, user_content, section_order).
-
-    System content = stable sections (system, tools, role) joined with double newlines.
-    User content = variable sections (context, documents, history, query) in render order.
-    Section order = full ordered list of section names from the rendered prompt.
-
-    For Anthropic via OpenRouter, system_content is sent as a system message
-    with `cache_control: {type: "ephemeral"}` so the provider can cache the
-    stable prefix explicitly. For all other models, the bench falls back to
-    sending everything as a single user message.
-    """
-    prompt_str, order = _render_prompt(p)
-    # Map section name -> content from the underlying Prompt
-    section_map: dict[str, str] = {name: content for name, content in p.sections()}
-
-    # Use the rendered order to determine stable vs variable splits
-    sys_parts: list[str] = []
-    usr_parts: list[str] = []
-    for name in order:
-        if name in STABLE_SECTIONS:
-            sys_parts.append(section_map.get(name, ""))
-        else:
-            usr_parts.append(section_map.get(name, ""))
-    return "\n\n".join(s for s in sys_parts if s), "\n\n".join(u for u in usr_parts if u), order
+    """Delegate to the public `contextops.render.split_prompt`."""
+    split = _split_public(p)
+    return split.system, split.user, split.section_order
 
 
 def _reverse_prompt(p: Prompt) -> Prompt:

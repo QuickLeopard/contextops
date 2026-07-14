@@ -70,3 +70,51 @@ def test_eval_echo_offline(tmp_path):
     ])
     assert result.exit_code == 0
     assert "A/B Eval Report" in result.output
+
+
+# --- doctor (offline via mock client) ---
+
+def test_run_doctor_detects_cache_activation():
+    """run_doctor reports activated=True when calls 2+ have cached_tokens > 0."""
+    from contextops.cli import run_doctor
+
+    class FakeClient:
+        PROVIDER = "fake"
+        DEFAULT_MODEL = "x"
+        _call = 0
+
+        def complete(self, *, model, messages, temperature=0.0, max_tokens=64, system=None):
+            self._call += 1
+            from contextops_bench.types import CompletionResponse
+            # First call cold; subsequent calls warm.
+            cached = 0 if self._call == 1 else 900
+            return CompletionResponse(
+                text="ok", prompt_tokens=1000, completion_tokens=4,
+                cached_tokens=cached, cost_usd=0.0, model=model, raw={},
+            )
+
+    result = run_doctor(FakeClient(), system_content="STABLE PREFIX", n_calls=3)
+    assert result["activated"] is True
+    assert result["calls"][0]["cached_tokens"] == 0  # cold
+    assert result["calls"][1]["cached_tokens"] == 900  # warm
+    assert "cache active" in result["summary"]
+
+
+def test_run_doctor_reports_no_activation():
+    """run_doctor reports activated=False when cache never engages."""
+    from contextops.cli import run_doctor
+
+    class ColdClient:
+        PROVIDER = "fake"
+        DEFAULT_MODEL = "x"
+
+        def complete(self, *, model, messages, temperature=0.0, max_tokens=64, system=None):
+            from contextops_bench.types import CompletionResponse
+            return CompletionResponse(
+                text="ok", prompt_tokens=1000, completion_tokens=4,
+                cached_tokens=0, cost_usd=0.0, model=model, raw={},
+            )
+
+    result = run_doctor(ColdClient(), system_content="STABLE PREFIX", n_calls=3)
+    assert result["activated"] is False
+    assert "NOT active" in result["summary"]

@@ -12,9 +12,9 @@ import urllib.request
 import urllib.error
 import json as jsonlib
 
-from contextops.pricing import estimate_cost
 from contextops_bench.client_protocol import BenchClient
 from contextops_bench.types import BenchResult, CompletionResponse  # noqa: F401 (re-exported)
+from contextops_bench.usage import build_response, extract_usage
 
 
 # Models on OpenRouter that honor Anthropic-style explicit prompt cache_control.
@@ -98,16 +98,11 @@ class OllamaClient(BaseHTTPClient):
         raw["_latency_ms"] = (time.time() - t0) * 1000
 
         choice = raw.get("choices", [{}])[0]
-        usage = raw.get("usage", {}) or {}
-        return CompletionResponse(
-            text=choice.get("message", {}).get("content", ""),
-            prompt_tokens=usage.get("prompt_tokens", 0),
-            completion_tokens=usage.get("completion_tokens", 0),
-            cached_tokens=usage.get("cached_tokens", 0) or usage.get("cache_read_input_tokens", 0),
-            cost_usd=0.0,  # local = free
-            model=raw.get("model", model),
-            raw=raw,
-        )
+        metrics = extract_usage(raw, self.PROVIDER)
+        resp = build_response(raw=raw, metrics=metrics, model=model,
+                              text=choice.get("message", {}).get("content", ""))
+        resp.cost_usd = 0.0  # local = free
+        return resp
 
 
 class LMStudioClient(OllamaClient):
@@ -227,30 +222,8 @@ class AnthropicDirectClient(BaseHTTPClient):
             if block.get("type") == "text":
                 text += block.get("text", "")
 
-        usage = raw.get("usage", {})
-        prompt_tokens = usage.get("input_tokens", 0)
-        completion_tokens = usage.get("output_tokens", 0)
-        # Anthropic native: cache_creation_input_tokens (first call) and
-        # cache_read_input_tokens (subsequent calls). Both are 0 if cache
-        # isn't activating.
-        cached_tokens = usage.get("cache_read_input_tokens", 0)
-        cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
-
-        cost = estimate_cost(
-            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
-            cached_tokens=cached_tokens, cache_creation_tokens=cache_creation_tokens,
-            model=native_model,
-        )
-
-        return CompletionResponse(
-            text=text,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            cached_tokens=cached_tokens,
-            cost_usd=cost,
-            model=raw.get("model", native_model),
-            raw=raw,
-        )
+        metrics = extract_usage(raw, self.PROVIDER)
+        return build_response(raw=raw, metrics=metrics, model=native_model, text=text)
 
 
 class OpenRouterClient(BaseHTTPClient):
@@ -368,37 +341,12 @@ class OpenRouterClient(BaseHTTPClient):
         raw["_latency_ms"] = (time.time() - t0) * 1000
 
         choice = raw.get("choices", [{}])[0]
-        usage = raw.get("usage", {}) or {}
-        prompt_tokens = usage.get("prompt_tokens", 0)
-        completion_tokens = usage.get("completion_tokens", 0)
-        # OpenRouter may surface cache info in any of these depending on the model
-        cached_tokens = (
-            usage.get("cached_tokens", 0)
-            or usage.get("cache_read_input_tokens", 0)
-            or (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
-        )
-
-        # Estimate cost via the shared pricing module (resolves the provider
-        # prefix on the OpenRouter model id, e.g. "anthropic/claude-haiku-4.5").
-        cache_creation_tokens = (
-            (usage.get("prompt_tokens_details") or {}).get("cache_write_tokens", 0)
-        )
-        cost = estimate_cost(
-            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
-            cached_tokens=cached_tokens, cache_creation_tokens=cache_creation_tokens,
-            model=model,
-        )
-
-        self._maybe_debug(raw=raw, cached_tokens=cached_tokens, prompt_tokens=prompt_tokens)
-
-        return CompletionResponse(
+        metrics = extract_usage(raw, self.PROVIDER)
+        self._maybe_debug(raw=raw, cached_tokens=metrics.cached_tokens,
+                          prompt_tokens=metrics.prompt_tokens)
+        return build_response(
+            raw=raw, metrics=metrics, model=model,
             text=choice.get("message", {}).get("content", ""),
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            cached_tokens=cached_tokens,
-            cost_usd=cost,
-            model=raw.get("model", model),
-            raw=raw,
         )
 
 

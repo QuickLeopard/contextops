@@ -2,6 +2,7 @@
 
 from contextops.optimizer import optimize, reorder, count_tokens, estimate_cache_hit
 from contextops.pricing import Price, PRICING, estimate_cost
+from contextops.render import PromptSplit, render_prompt, split_prompt, STABLE_SECTIONS
 from contextops.logger import Logger, CallLog
 from contextops.eval import compare, evaluate, evaluate_ab
 from contextops.judge import list_metrics
@@ -19,6 +20,10 @@ __all__ = [
     "Price",
     "PRICING",
     "estimate_cost",
+    "PromptSplit",
+    "render_prompt",
+    "split_prompt",
+    "STABLE_SECTIONS",
     "Logger",
     "CallLog",
     "compare",
