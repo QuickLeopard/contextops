@@ -83,15 +83,20 @@ Estimated impact on a typical workload:
 | Feature | Description |
 |---|---|
 | **Cache-aware reordering** | Moves stable sections to the top, variable to the bottom. Same total tokens, much higher cache hit rate. |
+| **Provider-ready split** | `split_prompt()` renders a `Prompt` into the `(system, user)` shape providers want for `cache_control`. |
+| **Import existing prompts** | `Prompt.from_openai_messages()` / `from_anthropic_messages()` build a Prompt from your existing message list — no rewrite. |
 | **Token counting** | tiktoken-based, model-aware (`gpt-4o`, `claude-*`, `qwen*`, fallback to `cl100k_base`). |
 | **Cost estimation** | Per-model pricing baked in; estimates $/1k calls before vs after reorder. |
 | **LLM-as-judge eval** | Built-in metrics: `faithfulness`, `relevance`, `completeness`, `conciseness`. |
 | **A/B testing** | Run two prompts over a golden dataset, get structural + quality deltas. |
 | **Local SQLite logger** | Every LLM call goes to `~/.contextops/calls.db`. Zero cloud. |
+| **Trend & export** | Daily cache-hit / cost trend, and CSV/JSONL export for any notebook or observability stack. |
+| **Budget alerts** | Set daily/monthly spend thresholds; `stats` flags red when crossed. |
+| **Cache self-check** | `contextops doctor` verifies caching actually activates on your provider. |
 | **Dataset loaders** | `.json`, `.jsonl`, `.csv` golden QA datasets. |
-| **Rich CLI** | `optimize / stats / recent / compare / eval / reset` with tables and progress bars. |
+| **Rich CLI** | `optimize / stats / recent / trend / export / compare / eval / doctor / budget / reset`. |
 | **LiteLLM auto-log (opt)** | One line to auto-log every litellm call. `pip install "contextops[integrations]"` |
-| **Bench harness** | 1000+ prompts through Ollama, LM Studio, or OpenRouter. |
+| **Bench harness** | 1000+ prompts through Ollama, LM Studio, OpenRouter, or direct Anthropic API. |
 
 ---
 
@@ -118,7 +123,7 @@ git clone https://github.com/QuickLeopard/contextops.git
 cd contextops
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,integrations]"
-pytest                                          # 35 tests
+pytest                                          # 112 tests
 python -m contextops_bench smoke               # offline smoke
 ```
 
@@ -191,7 +196,31 @@ print(report["delta"])
 # {"tokens": 0, "cache_hit_rate": 0.65, "cost_savings_per_1k_usd": 4.21}
 ```
 
-### 3. A/B eval with LLM-as-judge
+### 3. Adopt without rewriting your prompts
+
+Already have a `messages` list? Import it directly and get the cache-optimized
+`system` / `user` split in two lines:
+
+```python
+from contextops import Prompt, reorder, split_prompt
+
+# Your existing OpenAI- or Anthropic-style message list:
+messages = [
+    {"role": "system", "content": "You are a coding assistant. " * 200},
+    {"role": "user", "content": "Fix this bug"},
+]
+
+prompt = Prompt.from_openai_messages(messages)   # or from_anthropic_messages(msgs, system=...)
+optimized = reorder(prompt)
+split = split_prompt(optimized)
+
+# Hand these to your provider — split.system carries the cacheable stable prefix:
+client.chat(model="claude-haiku-4.5",
+            system=split.system,            # ← send with cache_control
+            messages=[{"role": "user", "content": split.user}])
+```
+
+### 4. A/B eval with LLM-as-judge
 
 ```python
 from contextops import evaluate_ab, load_dataset, Prompt, LiteLLMJudge
@@ -217,7 +246,7 @@ print(report["structural"])   # tokens / cache / cost deltas
 print(report["quality"])      # per-metric judge deltas
 ```
 
-### 4. CLI
+### 5. CLI
 
 ```bash
 # Optimize a prompt inline
@@ -250,15 +279,30 @@ contextops eval \
     --judge-model gpt-4o-mini \
     --metrics relevance,completeness,faithfulness,conciseness
 
-# Local call stats
+# Local call stats + recent calls
 contextops stats
 contextops recent --limit 50
+
+# Daily cache-hit / cost trend (the "before vs after reorder" curve)
+contextops trend --days 30
+contextops trend --days 14 --by-model
+
+# Export logged calls to CSV or JSONL for a notebook / observability stack
+contextops export --format csv --out calls.csv
+contextops export --format jsonl --since 7 --out week.jsonl
+
+# Verify prompt caching actually activates on your provider (10-second self-check)
+contextops doctor --provider direct_anthropic
+
+# Set a daily spend guardrail
+contextops budget set --daily 50
+contextops budget status
 
 # Reset the local database
 contextops reset
 ```
 
-### 5. Auto-log every LiteLLM call
+### 6. Auto-log every LiteLLM call
 
 ```python
 from contextops.integrations import install_callback
@@ -346,6 +390,7 @@ See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for the formal pass criteria.
 ## 📚 Documentation
 
 - [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) — formal pass/fail criteria
+- [`docs/CODE_REVIEW.md`](docs/CODE_REVIEW.md) — independent architecture & decomposition review with scorecard and findings
 - [`CHANGELOG.md`](CHANGELOG.md) — version history
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute
 - [`SECURITY.md`](SECURITY.md) — how to report vulnerabilities

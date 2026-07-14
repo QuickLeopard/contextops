@@ -13,7 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`BenchClient` Protocol** (`contextops_bench.client_protocol`): the implicit client contract is now explicit and runtime-checkable. `EchoClient` conforms (LSP fixed — it now accepts the `system` kwarg).
 - **`CLIENTS` provider registry** (`contextops_bench.clients`): single source for the provider list; the CLI `--provider` choices derive from it.
 - **`contextops_bench/types.py`**: `BenchResult` and `CompletionResponse` moved out of `clients.py` to break an import cycle with the Protocol.
-- Tests: `_percentile`, `save_csv` empty-input, `run_one` system-passing, EchoClient LSP regression, OpenRouter `_shape_messages`/`_apply_provider_pinning`/`_maybe_debug`, registry, Protocol conformance, and full CLI coverage (`test_cli.py`). Test count: 39 → 73.
+- **`contextops.render` module (public)** — `split_prompt()` and `render_prompt()`: render a `Prompt` into the `(system, user)` split providers want for prompt caching. Promotes the bench's previously-private `_split_prompt`. Exported as `PromptSplit`, `split_prompt`, `render_prompt`, `STABLE_SECTIONS`.
+- **`Prompt.from_openai_messages()` / `Prompt.from_anthropic_messages()`** — build a `Prompt` from an existing OpenAI- or Anthropic-style messages list, so teams can adopt ContextOps without rewriting their prompt construction. Handles multi-system merging, conversation-history extraction, vision-style list content, and Anthropic's separate top-level `system` field.
+- **`contextops_bench/usage.py`** — shared provider-usage normalizer (`extract_usage()`, `UsageMetrics`): consolidates the three divergent `cached_tokens` parsing strategies into one place and stops discarding `cache_creation_tokens` (previously parsed for cost math then dropped). All clients now route through `build_response()`.
+- **`Logger.trend(days, by_model)`** — per-day (or per-day-per-model) cache-hit / cost / call-count trend over the last N days. Surfaces the "before vs after reorder" curve.
+- **`Logger.export(fmt, path, days)`** — export logged calls to CSV or JSONL.
+- **`Logger.set_budget()` / `.spend()` / `.budget_status()`** + a `budgets` table — daily/monthly spend thresholds.
+- New CLI subcommands: **`contextops trend`** (daily cache/cost trend), **`contextops export`** (CSV/JSONL), **`contextops doctor`** (verify prompt caching activates on your provider), **`contextops budget set|status`** (spend guardrail with green/yellow/red thresholds).
+- `OptimizationResult.original_cache_hit_rate` field — the un-optimized hit rate is now computed and stored (previously hardcoded `0.05` in the CLI).
+- Network-gated `tests/test_anthropic_integration.py` — validates real cache activation via `AnthropicDirectClient` (skipped unless `ANTHROPIC_API_KEY` set). Captures what the relocated `diag_*.py` scripts probed manually.
+- Tests: `_percentile`, `save_csv` empty-input, `run_one` system-passing, EchoClient LSP regression, OpenRouter `_shape_messages`/`_apply_provider_pinning`/`_maybe_debug`, registry, Protocol conformance, full CLI coverage (`test_cli.py`), `test_render.py`, `test_models_import.py`, `test_usage.py`, `test_logger_trend_export.py`, `test_budget.py`, `doctor` offline via mock client. Test count: 39 → 112 (+1 skipped).
 
 ### Changed
 - **`OpenRouterClient.complete` decomposed** from a 135-line god method into `_shape_messages`, `_apply_provider_pinning`, `_maybe_debug`. Environment-variable reads moved from per-call to the constructor.
@@ -23,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`_make_fresh_client` → `_reset_client_state`**: honestly named (it mutates in place, doesn't return a fresh instance).
 - **`prompt_factory`**: global `random.seed()` calls replaced with local `random.Random` instances (no longer perturbs the global RNG). Realistic-agent preset content moved to `contextops_bench/data/` data files (module shrank from ~422 to ~250 lines).
 - **`__main__._execute` decomposed** into `_resolve_preset`, `_build_prompt_list`, `_write_artifacts`. Stale docstring updated (`bench.smoke` → `contextops_bench smoke`).
+- **CLI rendering extracted** to `contextops/cli_views.py` (`render_optimization`, `render_eval_report`); `cli.py` is now pure command wiring (375 → 304 lines).
+- **`stats` CLI** no longer shows a hardcoded baseline cache hit rate — it reads `OptimizationResult.original_cache_hit_rate`. The dead `_baseline_hit()` helper is removed.
 
 ### Fixed
 - **Pricing drift**: `claude-haiku-4.5` was `$0.80/M` in `optimizer.py` but `$1.00/M` in the bench clients. Now a single reconciled value (`$1.00/M`) via the shared module.
@@ -36,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - `_bench_render_order` private attribute and both associated `# type: ignore[attr-defined]` suppressions.
 - Duplicate `PRICING` dicts from `AnthropicDirectClient` and `OpenRouterClient`.
+- `setup.cfg` — it was a pure duplication of `pyproject.toml` (same metadata, dependencies, entry point); drifted slightly (missing the `integrations`/`bench`/`dev` extras). `pyproject.toml` is now the sole source of packaging metadata.
 
 ### Internal
 - Diagnostic cache-control probes (`diag_*.py`) moved from repo root to `scripts/diag/` with a README. Fixed the broken hardcoded path in `diag_pinned_v2.py`.
