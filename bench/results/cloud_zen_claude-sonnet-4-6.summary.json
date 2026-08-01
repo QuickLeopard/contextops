@@ -1,0 +1,181 @@
+{
+  "optimized": {
+    "n": 30,
+    "errors": 3,
+    "prompt_tokens_mean": 606.4,
+    "prompt_tokens_p50": 344.0,
+    "completion_tokens_mean": 2.9,
+    "cached_tokens_mean": 2320,
+    "cost_usd_total": 0.119022,
+    "cost_usd_per_call": 0.003967,
+    "latency_ms_p50": 2836.8,
+    "latency_ms_p95": 25862.3,
+    "cache_hit_rate_mean": 0.611,
+    "cache_hit_rate_p50": 0.892
+  },
+  "baseline": {
+    "n": 30,
+    "errors": 0,
+    "prompt_tokens_mean": 3774.4,
+    "prompt_tokens_p50": 3777.0,
+    "completion_tokens_mean": 2.9,
+    "cached_tokens_mean": 0,
+    "cost_usd_total": 0.341013,
+    "cost_usd_per_call": 0.011367,
+    "latency_ms_p50": 2756.6,
+    "latency_ms_p95": 13717.7,
+    "cache_hit_rate_mean": 0.0,
+    "cache_hit_rate_p50": 0.0
+  },
+  "excluded": {
+    "optimized": {
+      "n": 0,
+      "errors": 0,
+      "prompt_tokens_mean": 0.0,
+      "prompt_tokens_p50": 0.0,
+      "completion_tokens_mean": 0.0,
+      "cached_tokens_mean": 0.0,
+      "cost_usd_total": 0.0,
+      "cost_usd_per_call": 0.0,
+      "latency_ms_p50": 0.0,
+      "latency_ms_p95": 0.0,
+      "cache_hit_rate_mean": 0.0,
+      "cache_hit_rate_p50": 0.0
+    },
+    "baseline": {
+      "n": 0,
+      "errors": 0,
+      "prompt_tokens_mean": 0.0,
+      "prompt_tokens_p50": 0.0,
+      "completion_tokens_mean": 0.0,
+      "cached_tokens_mean": 0.0,
+      "cost_usd_total": 0.0,
+      "cost_usd_per_call": 0.0,
+      "latency_ms_p50": 0.0,
+      "latency_ms_p95": 0.0,
+      "cache_hit_rate_mean": 0.0,
+      "cache_hit_rate_p50": 0.0
+    },
+    "count": 0
+  },
+  "delta": {
+    "cache_hit_rate_delta": 0.611,
+    "cost_per_call_delta_usd": -0.0074,
+    "prompt_tokens_delta_mean": -3168.0,
+    "cost_delta_ci_low_usd": -0.009233,
+    "cost_delta_ci_high_usd": -0.005262,
+    "effect_size_pct": -91.13
+  },
+  "breakdown": [
+    {
+      "prompt_id": 12,
+      "model": "claude-sonnet-4-6",
+      "prompt_tokens": 528,
+      "baseline_cost": 0.012042,
+      "optimized_cost": 0.001059,
+      "delta_cost": -0.010983,
+      "delta_pct": -91.21,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.868
+    },
+    {
+      "prompt_id": 27,
+      "model": "claude-sonnet-4-6",
+      "prompt_tokens": 510,
+      "baseline_cost": 0.011985,
+      "optimized_cost": 0.001059,
+      "delta_cost": -0.010926,
+      "delta_pct": -91.16,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.872
+    },
+    {
+      "prompt_id": 20,
+      "model": "claude-sonnet-4-6",
+      "prompt_tokens": 491,
+      "baseline_cost": 0.011931,
+      "optimized_cost": 0.001059,
+      "delta_cost": -0.010872,
+      "delta_pct": -91.12,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.876
+    },
+    {
+      "prompt_id": 14,
+      "model": "claude-sonnet-4-6",
+      "prompt_tokens": 472,
+      "baseline_cost": 0.011874,
+      "optimized_cost": 0.001059,
+      "delta_cost": -0.010815,
+      "delta_pct": -91.08,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.881
+    },
+    {
+      "prompt_id": 19,
+      "model": "claude-sonnet-4-6",
+      "prompt_tokens": 425,
+      "baseline_cost": 0.01173,
+      "optimized_cost": 0.001059,
+      "delta_cost": -0.010671,
+      "delta_pct": -90.97,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.891
+    },
+    {
+      "prompt_id": 9,
+      "model": "claude-sonnet-4-6",
+      "prompt_tokens": 420,
+      "baseline_cost": 0.011715,
+      "optimized_cost": 0.001059,
+      "delta_cost": -0.010656,
+      "delta_pct": -90.96,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.892
+    },
+    {
+      "prompt_id": 18,
+      "model": "claude-sonnet-4-6",
+      "prompt_tokens": 414,
+      "baseline_cost": 0.011697,
+      "optimized_cost": 0.001059,
+      "delta_cost": -0.010638,
+      "delta_pct": -90.95,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.894
+    },
+    {
+      "prompt_id": 13,
+      "model": "claude-sonnet-4-6",
+      "prompt_tokens": 393,
+      "baseline_cost": 0.011634,
+      "optimized_cost": 0.001059,
+      "delta_cost": -0.010575,
+      "delta_pct": -90.9,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.899
+    },
+    {
+      "prompt_id": 16,
+      "model": "claude-sonnet-4-6",
+      "prompt_tokens": 383,
+      "baseline_cost": 0.011604,
+      "optimized_cost": 0.001059,
+      "delta_cost": -0.010545,
+      "delta_pct": -90.87,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.901
+    },
+    {
+      "prompt_id": 15,
+      "model": "claude-sonnet-4-6",
+      "prompt_tokens": 380,
+      "baseline_cost": 0.011595,
+      "optimized_cost": 0.001059,
+      "delta_cost": -0.010536,
+      "delta_pct": -90.87,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.902
+    }
+  ]
+}
