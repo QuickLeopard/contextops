@@ -51,7 +51,7 @@ SYSTEM = """You are Atlas, a senior software engineering assistant built by Cont
 url = "https://openrouter.ai/api/v1/chat/completions"
 
 print(f"SYSTEM: {len(SYSTEM)} chars (~{len(SYSTEM)//4} tokens)")
-print(f"Calling 3 sequential requests, provider pinned to anthropic...\n")
+print("Calling 3 sequential requests, provider pinned to anthropic...\n")
 
 for i in range(1, 4):
     payload = {

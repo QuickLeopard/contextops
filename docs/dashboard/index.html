@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ContextOps Benchmark Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .chart-container { position: relative; height: 320px; width: 100%; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div class="max-w-7xl mx-auto px-6 py-10">
+    <header class="mb-10">
+      <h1 class="text-4xl font-bold tracking-tight mb-2">ContextOps Benchmark Dashboard</h1>
+      <p class="text-slate-600">
+        Live-ish results from real provider runs. Optimized prompts reorder stable
+        sections first; baseline uses a worst-case ordering.
+      </p>
+      <p class="text-xs text-slate-400 mt-2">
+        Generated from bench/results/*.summary.json. Some committed runs are
+        pre-fix / noisy; only runs with both a cache-hit gain and a cost drop
+        are counted as wins.
+      </p>
+    </header>
+
+    <section class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-10">
+      <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+        <p class="text-sm font-medium text-slate-500">Runs</p>
+        <p class="text-3xl font-bold">9</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+        <p class="text-sm font-medium text-slate-500">Significant wins</p>
+        <p class="text-3xl font-bold text-emerald-600">2</p>
+        <p class="text-xs text-slate-400">hit &Delta; &gt;1pp + cost &Delta; &gt;$0</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+        <p class="text-sm font-medium text-slate-500">Best cache hit rate</p>
+        <p class="text-3xl font-bold text-emerald-600">74.9%</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+        <p class="text-sm font-medium text-slate-500">Best cost reduction</p>
+        <p class="text-3xl font-bold text-emerald-600">$0.007547</p>
+        <p class="text-xs text-slate-400">per call</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+        <p class="text-sm font-medium text-slate-500">Avg cache-hit &Delta;</p>
+        <p class="text-3xl font-bold text-blue-600">+12.2%</p>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+      <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+        <h2 class="text-lg font-semibold mb-4">Cache hit rate</h2>
+        <div class="chart-container"><canvas id="hitChart"></canvas></div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+        <h2 class="text-lg font-semibold mb-4">Cost per call</h2>
+        <div class="chart-container"><canvas id="costChart"></canvas></div>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <h2 class="text-lg font-semibold p-6 border-b border-slate-200">All runs</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-100 text-slate-600">
+            <tr>
+              <th class="text-left px-6 py-3 font-medium">Provider</th>
+              <th class="text-left px-6 py-3 font-medium">Model</th>
+              <th class="text-right px-6 py-3 font-medium">n (opt/base)</th>
+              <th class="text-right px-6 py-3 font-medium">Hit rate &Delta;</th>
+              <th class="text-right px-6 py-3 font-medium">Cost &Delta;/call</th>
+              <th class="text-right px-6 py-3 font-medium">Savings / 1k calls</th>
+              <th class="text-right px-6 py-3 font-medium">Latency opt/base</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr class="hover:bg-slate-50">
+  <td class="px-6 py-3 font-medium">anthropic</td>
+  <td class="px-6 py-3 text-slate-600">claude-3.5-haiku</td>
+  <td class="px-6 py-3 text-right">50/50</td>
+  <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
+  <td class="px-6 py-3 text-right text-slate-600">$+0.000000</td>
+  <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
+  <td class="px-6 py-3 text-right">0ms / 0ms</td>
+</tr>
+<tr class="hover:bg-slate-50">
+  <td class="px-6 py-3 font-medium">anthropic</td>
+  <td class="px-6 py-3 text-slate-600">claude-haiku-4.5</td>
+  <td class="px-6 py-3 text-right">30/30</td>
+  <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
+  <td class="px-6 py-3 text-right text-emerald-600">$-0.000001</td>
+  <td class="px-6 py-3 text-right text-emerald-600">$+0.00</td>
+  <td class="px-6 py-3 text-right">1572ms / 1455ms</td>
+</tr>
+<tr class="hover:bg-slate-50">
+  <td class="px-6 py-3 font-medium">anthropic</td>
+  <td class="px-6 py-3 text-slate-600">claude-sonnet-4.6</td>
+  <td class="px-6 py-3 text-right">30/30</td>
+  <td class="px-6 py-3 text-right text-emerald-600">+18.8%</td>
+  <td class="px-6 py-3 text-right text-slate-600">$+0.007863</td>
+  <td class="px-6 py-3 text-right text-slate-600">$-7.86</td>
+  <td class="px-6 py-3 text-right">1991ms / 2096ms</td>
+</tr>
+<tr class="hover:bg-slate-50">
+  <td class="px-6 py-3 font-medium">claude-sonnet-4-6</td>
+  <td class="px-6 py-3 text-slate-600">claude-sonnet-4-6</td>
+  <td class="px-6 py-3 text-right">5/5</td>
+  <td class="px-6 py-3 text-right text-emerald-600">+10.9%</td>
+  <td class="px-6 py-3 text-right text-slate-600">$+0.000000</td>
+  <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
+  <td class="px-6 py-3 text-right">0ms / 0ms</td>
+</tr>
+<tr class="hover:bg-slate-50">
+  <td class="px-6 py-3 font-medium">google</td>
+  <td class="px-6 py-3 text-slate-600">gemini-2.5-flash</td>
+  <td class="px-6 py-3 text-right">30/30</td>
+  <td class="px-6 py-3 text-right text-emerald-600">+5.5%</td>
+  <td class="px-6 py-3 text-right text-emerald-600">$-0.000057</td>
+  <td class="px-6 py-3 text-right text-emerald-600">$+0.06</td>
+  <td class="px-6 py-3 text-right">1021ms / 1017ms</td>
+</tr>
+<tr class="hover:bg-slate-50">
+  <td class="px-6 py-3 font-medium">openai</td>
+  <td class="px-6 py-3 text-slate-600">gpt-4o-mini</td>
+  <td class="px-6 py-3 text-right">30/30</td>
+  <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
+  <td class="px-6 py-3 text-right text-slate-600">$+0.000000</td>
+  <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
+  <td class="px-6 py-3 text-right">1163ms / 1401ms</td>
+</tr>
+<tr class="hover:bg-slate-50">
+  <td class="px-6 py-3 font-medium">ollama</td>
+  <td class="px-6 py-3 text-slate-600">ollama</td>
+  <td class="px-6 py-3 text-right">25/25</td>
+  <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
+  <td class="px-6 py-3 text-right text-slate-600">$+0.000000</td>
+  <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
+  <td class="px-6 py-3 text-right">1825ms / 1702ms</td>
+</tr>
+<tr class="hover:bg-slate-50">
+  <td class="px-6 py-3 font-medium">zen</td>
+  <td class="px-6 py-3 text-slate-600">n5</td>
+  <td class="px-6 py-3 text-right">5/5</td>
+  <td class="px-6 py-3 text-right text-emerald-600">+74.9%</td>
+  <td class="px-6 py-3 text-right text-emerald-600">$-0.007547</td>
+  <td class="px-6 py-3 text-right text-emerald-600">$+7.55</td>
+  <td class="px-6 py-3 text-right">2532ms / 2286ms</td>
+</tr>
+<tr class="hover:bg-slate-50">
+  <td class="px-6 py-3 font-medium">smoke</td>
+  <td class="px-6 py-3 text-slate-600">smoke</td>
+  <td class="px-6 py-3 text-right">10/10</td>
+  <td class="px-6 py-3 text-right text-slate-600">-0.4%</td>
+  <td class="px-6 py-3 text-right text-slate-600">$+0.000000</td>
+  <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
+  <td class="px-6 py-3 text-right">0ms / 0ms</td>
+</tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const labels = ["anthropic \u00b7 claude-3.5-haiku", "anthropic \u00b7 claude-haiku-4.5", "anthropic \u00b7 claude-sonnet-4.6", "claude-sonnet-4-6 \u00b7 claude-sonnet-4-6", "google \u00b7 gemini-2.5-flash", "openai \u00b7 gpt-4o-mini", "ollama \u00b7 ollama", "zen \u00b7 n5", "smoke \u00b7 smoke"];
+    const optimizedHits = [0.0, 0.0, 0.188, 0.135, 0.055, 0.0, 0.0, 0.749, 0.038];
+    const baselineHits = [0.0, 0.0, 0.0, 0.026, 0.0, 0.0, 0.0, 0.0, 0.042];
+    const optimizedCosts = [0.0, 0.003892, 0.019097, 0.0, 0.001087, 0.000218, 0.0, 0.003598, 0.0];
+    const baselineCosts = [0.0, 0.003893, 0.011234, 0.0, 0.001144, 0.000218, 0.0, 0.011145, 0.0];
+    const deltas = [0.0, 0.0, 0.188, 0.109, 0.055, 0.0, 0.0, 0.749, -0.004];
+
+    const commonOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        x: { ticks: { callback: (value, index) => {
+              const label = labels[index] || '';
+              return label.length > 20 ? label.slice(0, 20) + '...' : label;
+            }, maxRotation: 45, minRotation: 30 } },
+        y: { beginAtZero: true },
+      },
+    };
+
+    new Chart(document.getElementById('hitChart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Optimized', data: optimizedHits, backgroundColor: '#10b981' },
+          { label: 'Baseline', data: baselineHits, backgroundColor: '#64748b' },
+        ],
+      },
+      options: commonOptions,
+    });
+
+    new Chart(document.getElementById('costChart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Optimized', data: optimizedCosts, backgroundColor: '#10b981' },
+          { label: 'Baseline', data: baselineCosts, backgroundColor: '#64748b' },
+        ],
+      },
+      options: commonOptions,
+    });
+  </script>
+</body>
+</html>

@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SQLite WAL mode + connection timeout** in `contextops.logger.Logger` to eliminate "database is locked" errors under concurrent writes.
 - **New module `contextops.pricing`** centralizing per-model token prices, default price, and cache-read discount.
 - **`contextops.optimizer.OptimizerConfig`** injectable configuration object for stability ordering, hit-rate bounds, section bonuses, cache-read discount, and pricing. `optimize()`, `reorder()`, and `estimate_cache_hit()` all accept an optional `config` argument while preserving existing defaults.
+- **Public benchmark dashboard** (`scripts/generate_dashboard.py`) generates a self-contained `docs/dashboard/index.html` from `bench/results/*.summary.json`, with summary cards, comparison charts, and per-run savings.
+- **Dashboard auto-regeneration workflow** (`.github/workflows/dashboard.yml`) regenerates and commits the dashboard whenever bench results or the generator change.
+- **One-line OpenAI SDK integration** (`contextops.integrations.openai.patch`) wraps an `openai.OpenAI` client so every `chat.completions.create` call is reordered for cache friendliness and optionally logged to the local SQLite database.
 
 ### Changed
 - **`Section` literal ordering in `contextops.models`** now matches the canonical stability order used by the optimizer (`documents` before `history`).
@@ -30,7 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 - Added regression tests for position-aware hit-rate estimation, A/B compare counts, concurrent `score_many` order/progress monotonicity, dataset validation warnings, SQLite WAL concurrency, `LiteLLMJudge` retry behavior, injectable `OptimizerConfig`, and aligned `Section` literal ordering.
-- Full suite: **91 passing**.
+- Added tests for the dashboard generator (filename parsing, dataset building, summary stats, end-to-end HTML generation).
+- Added tests for the OpenAI SDK integration (message conversion, reordering, logging, idempotent patch/unpatch).
+- Full suite: **91+ passing**.
 
 See `docs/PLAN_v0.3.3.md` for the full plan, decisions, and acceptance criteria.
 

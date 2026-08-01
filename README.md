@@ -91,6 +91,8 @@ Estimated impact on a typical workload:
 | **Dataset loaders** | `.json`, `.jsonl`, `.csv` golden QA datasets. |
 | **Rich CLI** | `optimize / stats / recent / compare / eval / reset` with tables and progress bars. |
 | **LiteLLM auto-log (opt)** | One line to auto-log every litellm call. `pip install "contextops[integrations]"` |
+| **OpenAI SDK patch (opt)** | One line to reorder + log every `openai.OpenAI().chat.completions.create` call. |
+| **Public benchmark dashboard** | Auto-generated HTML dashboard from `bench/results/*.summary.json`. |
 | **Bench harness** | 1000+ prompts through Ollama, LM Studio, OpenRouter, or direct APIs (Anthropic / OpenAI / Gemini / OpenCode-ZEN). |
 
 ---
@@ -267,6 +269,33 @@ install_callback()
 import litellm
 litellm.completion(model="gpt-4o", messages=[{"role": "user", "content": "hi"}])
 # → automatically logged to ~/.contextops/calls.db
+```
+
+### 6. Patch the OpenAI SDK for automatic reorder + logging
+
+```python
+import openai
+from contextops.integrations.openai import patch
+
+client = openai.OpenAI()
+patch(client)
+
+# Every completion is reordered so system/tool content is first,
+# then logged to ~/.contextops/calls.db.
+client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {"role": "user", "content": "Hello!"},
+        {"role": "system", "content": "You are helpful."},
+    ],
+)
+```
+
+To unpatch:
+
+```python
+from contextops.integrations.openai import unpatch
+unpatch(client)
 ```
 
 ---

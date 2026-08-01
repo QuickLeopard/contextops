@@ -23,7 +23,7 @@ SYSTEM = AGENT_PRESETS["realistic"]["system"] + "\n\n" + AGENT_PRESETS["realisti
 url = "https://openrouter.ai/api/v1/chat/completions"
 
 print(f"SYSTEM: {len(SYSTEM)} chars (rough token estimate: {len(SYSTEM)//4})")
-print(f"Calling 5 sequential requests, provider pinned to anthropic, cache_control on system...\n")
+print("Calling 5 sequential requests, provider pinned to anthropic, cache_control on system...\n")
 
 for i in range(1, 6):
     payload = {

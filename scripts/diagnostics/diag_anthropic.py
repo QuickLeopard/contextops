@@ -29,7 +29,7 @@ SYSTEM = (
 url = "https://openrouter.ai/api/v1/chat/completions"
 
 print(f"SYSTEM prefix: {len(SYSTEM)} chars (~{len(SYSTEM)//4} tokens)")
-print(f"Calling 3 sequential requests with cache_control marker on system message...\n")
+print("Calling 3 sequential requests with cache_control marker on system message...\n")
 
 for i in range(1, 4):
     payload = {

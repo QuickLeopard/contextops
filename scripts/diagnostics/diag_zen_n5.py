@@ -5,7 +5,6 @@ and call 5 times sequentially. Print cache_read vs cache_creation each call.
 import json
 import os
 import urllib.request
-import hashlib
 
 key = os.environ.get("ZEN_API_KEY", "")
 if not key:
