@@ -14,6 +14,8 @@ import json
 import re
 from pathlib import Path
 
+from contextops_bench.quality import evaluate_quality_gate
+
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = ROOT / "bench" / "results"
 OUTPUT_DIR = ROOT / "docs" / "dashboard"
@@ -42,6 +44,31 @@ def _parse_filename(path: Path) -> tuple[str, str]:
     return "unknown", "unknown"
 
 
+# Filename-provider tokens that are actually model VENDOR names, not real
+# API providers — these summaries were run via OpenRouter (the only client
+# that dispatches "vendor/model"-style names) but the filename convention
+# splits the vendor into the "provider" slot. Used only as a fallback for
+# legacy summaries that predate the ground-truth `provider`/`model` fields
+# runner.py now writes into every summary.json.
+_VENDOR_LABELS_MEANING_OPENROUTER = {"anthropic", "openai", "google"}
+
+
+def _runtime_provider_model(display_provider: str, display_model: str, data: dict) -> tuple[str, str]:
+    """Resolve the (provider, model) pair to feed the quality gate.
+
+    Prefers the ground-truth fields runner.py stores directly in the summary
+    (`data["provider"]`, `data["model"]`) — these reflect exactly what the
+    bench actually called at runtime. Falls back to reconstructing the
+    likely runtime values from the filename-derived display labels for
+    older summaries that predate those fields.
+    """
+    if data.get("provider") and data.get("model"):
+        return str(data["provider"]), str(data["model"])
+    if display_provider in _VENDOR_LABELS_MEANING_OPENROUTER:
+        return "openrouter", f"{display_provider}/{display_model}"
+    return display_provider, display_model
+
+
 def _load_runs() -> list[dict]:
     runs = []
     for path in sorted(RESULTS_DIR.glob("*.summary.json")):
@@ -52,12 +79,22 @@ def _load_runs() -> list[dict]:
             continue
         if not isinstance(data, dict):
             continue
+        # Always (re-)compute the quality gate deterministically from the
+        # summary's own stats, rather than trusting a possibly-stale stored
+        # `quality` key — this keeps legacy summaries (generated before the
+        # gate existed) and fresh ones held to the same standard. Use the
+        # resolved runtime provider/model (not the display labels) so gates
+        # like `cache_marker_dropped` match reality regardless of filename
+        # convention quirks.
+        runtime_provider, runtime_model = _runtime_provider_model(provider, model, data)
+        quality = evaluate_quality_gate(data, provider=runtime_provider, model=runtime_model)
         runs.append(
             {
                 "path": str(path.relative_to(ROOT)),
                 "provider": provider,
                 "model": model,
                 "data": data,
+                "quality": quality,
             }
         )
     return runs
@@ -108,15 +145,20 @@ def _summary_stats(runs: list[dict]) -> dict:
             "best_cost_delta": 0.0,
             "avg_delta": 0.0,
             "wins": 0,
+            "verified": 0,
         }
     deltas = [_safe(r["data"], "delta", "cache_hit_rate_delta") for r in runs]
     cost_deltas = [
         -_safe(r["data"], "delta", "cost_per_call_delta_usd") for r in runs
     ]
+    verified_flags = [r["quality"]["verified"] for r in runs]
+    # A "win" requires BOTH a statistically significant cost delta (the
+    # quality gate's `verified` flag) AND that the delta actually reduces
+    # cost — a verified, significant *increase* is real but not a win.
     wins = sum(
         1
-        for d, c in zip(deltas, cost_deltas)
-        if d > 0.01 and c > 0.000001
+        for verified, c in zip(verified_flags, cost_deltas)
+        if verified and c > 0
     )
     return {
         "runs": len(runs),
@@ -126,6 +168,7 @@ def _summary_stats(runs: list[dict]) -> dict:
         "best_cost_delta": max(cost_deltas) if cost_deltas else 0.0,
         "avg_delta": sum(deltas) / len(deltas) if deltas else 0.0,
         "wins": wins,
+        "verified": sum(verified_flags),
     }
 
 
@@ -150,21 +193,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         sections first; baseline uses a worst-case ordering.
       </p>
       <p class="text-xs text-slate-400 mt-2">
-        Generated from bench/results/*.summary.json. Some committed runs are
-        pre-fix / noisy; only runs with both a cache-hit gain and a cost drop
-        are counted as wins.
+        Generated from bench/results/*.summary.json. Every run is scored by a
+        deterministic quality gate: n &ge; 20 paired samples, error rate
+        &le; 15%, and a cost-delta 95% CI that excludes zero. "Verified"
+        means the gate passed; "Win" additionally requires the cost delta to
+        be a reduction. Unverified runs are shown but flagged with why they
+        didn't pass (see the Verified column).
       </p>
     </header>
 
-    <section class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-10">
+    <section class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-10">
       <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
         <p class="text-sm font-medium text-slate-500">Runs</p>
         <p class="text-3xl font-bold">__RUNS__</p>
       </div>
       <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
-        <p class="text-sm font-medium text-slate-500">Significant wins</p>
+        <p class="text-sm font-medium text-slate-500">Verified</p>
+        <p class="text-3xl font-bold text-blue-600">__VERIFIED__</p>
+        <p class="text-xs text-slate-400">n&ge;20, err&le;15%, CI excludes 0</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+        <p class="text-sm font-medium text-slate-500">Verified wins</p>
         <p class="text-3xl font-bold text-emerald-600">__WINS__</p>
-        <p class="text-xs text-slate-400">hit &Delta; &gt;1pp + cost &Delta; &gt;$0</p>
+        <p class="text-xs text-slate-400">verified + cost &Delta; &lt; $0</p>
       </div>
       <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
         <p class="text-sm font-medium text-slate-500">Best cache hit rate</p>
@@ -202,9 +253,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <th class="text-left px-6 py-3 font-medium">Model</th>
               <th class="text-right px-6 py-3 font-medium">n (opt/base)</th>
               <th class="text-right px-6 py-3 font-medium">Hit rate &Delta;</th>
-              <th class="text-right px-6 py-3 font-medium">Cost &Delta;/call</th>
+              <th class="text-right px-6 py-3 font-medium">Cost &Delta;/call (mean)</th>
+              <th class="text-right px-6 py-3 font-medium">Effect size (median)</th>
               <th class="text-right px-6 py-3 font-medium">Savings / 1k calls</th>
               <th class="text-right px-6 py-3 font-medium">Latency opt/base</th>
+              <th class="text-left px-6 py-3 font-medium">Verified</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
@@ -274,15 +327,32 @@ def _render_table(runs: list[dict]) -> str:
         opt = r["data"].get("optimized", {})
         base = r["data"].get("baseline", {})
         delta = r["data"].get("delta", {})
+        quality = r["quality"]
         n_opt = opt.get("n", 0)
         n_base = base.get("n", 0)
         hit_delta = _safe(delta, "cache_hit_rate_delta")
         cost_delta = _safe(delta, "cost_per_call_delta_usd")
+        effect_size = delta.get("effect_size_pct")
         lat_opt = _safe(opt, "latency_ms_p50")
         lat_base = _safe(base, "latency_ms_p50")
         hit_class = "text-emerald-600" if hit_delta > 0 else "text-slate-600"
         cost_class = "text-emerald-600" if cost_delta < 0 else "text-slate-600"
         savings_1k = -cost_delta * 1000
+        effect_size_str = f"{effect_size:+.1f}%" if effect_size is not None else "n/a"
+
+        if quality["verified"]:
+            verified_badge = (
+                '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full '
+                'text-xs font-medium bg-emerald-100 text-emerald-700">verified</span>'
+            )
+        else:
+            reasons = "; ".join(quality["reasons"]) or "did not pass quality gate"
+            verified_badge = (
+                f'<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full '
+                f'text-xs font-medium bg-amber-100 text-amber-700" title="{reasons}">'
+                f'unverified</span>'
+            )
+
         rows.append(
             f"""<tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">{r['provider']}</td>
@@ -290,8 +360,10 @@ def _render_table(runs: list[dict]) -> str:
   <td class="px-6 py-3 text-right">{n_opt}/{n_base}</td>
   <td class="px-6 py-3 text-right {hit_class}">{hit_delta:+.1%}</td>
   <td class="px-6 py-3 text-right {cost_class}">${cost_delta:+.6f}</td>
+  <td class="px-6 py-3 text-right {cost_class}">{effect_size_str}</td>
   <td class="px-6 py-3 text-right {cost_class}">${savings_1k:+.2f}</td>
   <td class="px-6 py-3 text-right">{lat_opt:.0f}ms / {lat_base:.0f}ms</td>
+  <td class="px-6 py-3">{verified_badge}</td>
 </tr>"""
         )
     return "\n".join(rows)
@@ -312,6 +384,7 @@ def main() -> None:
     html = (
         HTML_TEMPLATE
         .replace("__RUNS__", str(stats["runs"]))
+        .replace("__VERIFIED__", str(stats["verified"]))
         .replace("__WINS__", str(stats["wins"]))
         .replace("__BEST_HIT__", f"{stats['best_hit']:.1%}")
         .replace("__BEST_COST_DELTA__", f"${stats['best_cost_delta']:.6f}")

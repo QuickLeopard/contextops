@@ -19,21 +19,29 @@
         sections first; baseline uses a worst-case ordering.
       </p>
       <p class="text-xs text-slate-400 mt-2">
-        Generated from bench/results/*.summary.json. Some committed runs are
-        pre-fix / noisy; only runs with both a cache-hit gain and a cost drop
-        are counted as wins.
+        Generated from bench/results/*.summary.json. Every run is scored by a
+        deterministic quality gate: n &ge; 20 paired samples, error rate
+        &le; 15%, and a cost-delta 95% CI that excludes zero. "Verified"
+        means the gate passed; "Win" additionally requires the cost delta to
+        be a reduction. Unverified runs are shown but flagged with why they
+        didn't pass (see the Verified column).
       </p>
     </header>
 
-    <section class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-10">
+    <section class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-10">
       <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
         <p class="text-sm font-medium text-slate-500">Runs</p>
         <p class="text-3xl font-bold">8</p>
       </div>
       <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
-        <p class="text-sm font-medium text-slate-500">Significant wins</p>
-        <p class="text-3xl font-bold text-emerald-600">4</p>
-        <p class="text-xs text-slate-400">hit &Delta; &gt;1pp + cost &Delta; &gt;$0</p>
+        <p class="text-sm font-medium text-slate-500">Verified</p>
+        <p class="text-3xl font-bold text-blue-600">2</p>
+        <p class="text-xs text-slate-400">n&ge;20, err&le;15%, CI excludes 0</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+        <p class="text-sm font-medium text-slate-500">Verified wins</p>
+        <p class="text-3xl font-bold text-emerald-600">2</p>
+        <p class="text-xs text-slate-400">verified + cost &Delta; &lt; $0</p>
       </div>
       <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
         <p class="text-sm font-medium text-slate-500">Best cache hit rate</p>
@@ -71,9 +79,11 @@
               <th class="text-left px-6 py-3 font-medium">Model</th>
               <th class="text-right px-6 py-3 font-medium">n (opt/base)</th>
               <th class="text-right px-6 py-3 font-medium">Hit rate &Delta;</th>
-              <th class="text-right px-6 py-3 font-medium">Cost &Delta;/call</th>
+              <th class="text-right px-6 py-3 font-medium">Cost &Delta;/call (mean)</th>
+              <th class="text-right px-6 py-3 font-medium">Effect size (median)</th>
               <th class="text-right px-6 py-3 font-medium">Savings / 1k calls</th>
               <th class="text-right px-6 py-3 font-medium">Latency opt/base</th>
+              <th class="text-left px-6 py-3 font-medium">Verified</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
@@ -83,8 +93,10 @@
   <td class="px-6 py-3 text-right">50/50</td>
   <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$-0.000155</td>
+  <td class="px-6 py-3 text-right text-emerald-600">-0.0%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$+0.15</td>
   <td class="px-6 py-3 text-right">2028ms / 2212ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="error_rate=20% > max_error_rate=15%; cost delta 95% CI [-0.000768, +0.000463] includes zero; provider 'openrouter' is known to drop the cache marker for 'anthropic/claude-haiku-4.5' — cache_hit_rate is not measurable on this path">unverified</span></td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">anthropic</td>
@@ -92,8 +104,10 @@
   <td class="px-6 py-3 text-right">30/30</td>
   <td class="px-6 py-3 text-right text-emerald-600">+18.8%</td>
   <td class="px-6 py-3 text-right text-slate-600">$+0.007863</td>
+  <td class="px-6 py-3 text-right text-slate-600">n/a</td>
   <td class="px-6 py-3 text-right text-slate-600">$-7.86</td>
   <td class="px-6 py-3 text-right">1991ms / 2096ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="no confidence interval available (too few paired samples or legacy summary format); provider 'openrouter' is known to drop the cache marker for 'anthropic/claude-sonnet-4.6' — cache_hit_rate is not measurable on this path">unverified</span></td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">google</td>
@@ -101,8 +115,10 @@
   <td class="px-6 py-3 text-right">30/30</td>
   <td class="px-6 py-3 text-right text-emerald-600">+5.5%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$-0.000057</td>
+  <td class="px-6 py-3 text-right text-emerald-600">n/a</td>
   <td class="px-6 py-3 text-right text-emerald-600">$+0.06</td>
   <td class="px-6 py-3 text-right">1021ms / 1017ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="no confidence interval available (too few paired samples or legacy summary format)">unverified</span></td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">openai</td>
@@ -110,8 +126,10 @@
   <td class="px-6 py-3 text-right">30/30</td>
   <td class="px-6 py-3 text-right text-emerald-600">+39.4%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$-0.000327</td>
+  <td class="px-6 py-3 text-right text-emerald-600">-78.9%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$+0.33</td>
   <td class="px-6 py-3 text-right">1799ms / 2196ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">verified</span></td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">zen</td>
@@ -119,8 +137,10 @@
   <td class="px-6 py-3 text-right">30/30</td>
   <td class="px-6 py-3 text-right text-emerald-600">+61.1%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$-0.007400</td>
+  <td class="px-6 py-3 text-right text-emerald-600">-91.1%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$+7.40</td>
   <td class="px-6 py-3 text-right">2837ms / 2757ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">verified</span></td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">ollama</td>
@@ -128,8 +148,10 @@
   <td class="px-6 py-3 text-right">25/25</td>
   <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
   <td class="px-6 py-3 text-right text-slate-600">$+0.000000</td>
+  <td class="px-6 py-3 text-right text-slate-600">n/a</td>
   <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
   <td class="px-6 py-3 text-right">1825ms / 1702ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="no confidence interval available (too few paired samples or legacy summary format)">unverified</span></td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">zen</td>
@@ -137,8 +159,10 @@
   <td class="px-6 py-3 text-right">5/5</td>
   <td class="px-6 py-3 text-right text-emerald-600">+74.9%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$-0.007547</td>
+  <td class="px-6 py-3 text-right text-emerald-600">n/a</td>
   <td class="px-6 py-3 text-right text-emerald-600">$+7.55</td>
   <td class="px-6 py-3 text-right">2532ms / 2286ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="n=5 < min_n=20; no confidence interval available (too few paired samples or legacy summary format)">unverified</span></td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">smoke</td>
@@ -146,8 +170,10 @@
   <td class="px-6 py-3 text-right">10/10</td>
   <td class="px-6 py-3 text-right text-slate-600">-0.4%</td>
   <td class="px-6 py-3 text-right text-slate-600">$+0.000000</td>
+  <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
   <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
   <td class="px-6 py-3 text-right">0ms / 0ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="n=10 < min_n=20; cost delta 95% CI [+0.000000, +0.000000] includes zero">unverified</span></td>
 </tr>
           </tbody>
         </table>

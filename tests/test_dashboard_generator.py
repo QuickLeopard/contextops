@@ -52,6 +52,7 @@ def test_summary_stats_aggregates_runs():
                 "baseline": {"cache_hit_rate_mean": 0.0},
                 "delta": {"cache_hit_rate_delta": 0.50, "cost_per_call_delta_usd": -0.01},
             },
+            "quality": {"verified": True, "reasons": []},
         },
         {
             "provider": "b",
@@ -61,14 +62,35 @@ def test_summary_stats_aggregates_runs():
                 "baseline": {"cache_hit_rate_mean": 0.0},
                 "delta": {"cache_hit_rate_delta": 0.75, "cost_per_call_delta_usd": -0.02},
             },
+            "quality": {"verified": True, "reasons": []},
         },
     ]
     stats = _summary_stats(runs)
     assert stats["runs"] == 2
+    assert stats["verified"] == 2
     assert stats["wins"] == 2
     assert stats["best_hit"] == 0.75
     assert stats["best_cost_delta"] == 0.02
     assert stats["avg_delta"] == 0.625
+
+
+def test_summary_stats_excludes_unverified_from_wins():
+    """A run with a favorable delta but a failed quality gate isn't a 'win'."""
+    runs = [
+        {
+            "provider": "a",
+            "model": "m1",
+            "data": {
+                "optimized": {"cache_hit_rate_mean": 0.50},
+                "baseline": {"cache_hit_rate_mean": 0.0},
+                "delta": {"cache_hit_rate_delta": 0.50, "cost_per_call_delta_usd": -0.01},
+            },
+            "quality": {"verified": False, "reasons": ["n=5 < min_n=20"]},
+        },
+    ]
+    stats = _summary_stats(runs)
+    assert stats["verified"] == 0
+    assert stats["wins"] == 0
 
 
 def test_generate_dashboard_script_produces_html(tmp_path, monkeypatch):

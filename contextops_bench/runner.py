@@ -14,6 +14,7 @@ from contextops.optimizer import reorder, count_tokens
 from contextops_bench.clients import BenchResult, CompletionResponse
 from contextops_bench.stats import bootstrap_ci, effect_size_pct
 from contextops_bench.breakdown import per_prompt_breakdown, render_breakdown_table
+from contextops_bench.quality import evaluate_quality_gate
 
 
 # Sections treated as "stable" content (sent in the system message for
@@ -353,6 +354,17 @@ def summarize(
         summary["breakdown"] = per_prompt_breakdown(
             optimized, baseline, top_n=breakdown_top_n
         )
+        # Ground-truth provider/model as actually used at runtime (e.g.
+        # provider="openrouter", model="anthropic/claude-sonnet-4.6") — this
+        # is more reliable than reverse-parsing a summary filename, and lets
+        # downstream consumers (dashboard) apply quality gates correctly.
+        provider = optimized[0].provider if optimized else ""
+        model = optimized[0].model if optimized else ""
+        summary["provider"] = provider
+        summary["model"] = model
+        # Deterministic quality gate (v0.3.4): is this run adequately powered,
+        # low-error, and statistically significant? See contextops_bench.quality.
+        summary["quality"] = evaluate_quality_gate(summary, provider=provider, model=model)
 
     return summary
 
@@ -444,4 +456,14 @@ def render_summary(summary: dict, label: str) -> str:
     breakdown_lines = render_breakdown_table(summary.get("breakdown", []))
     if breakdown_lines:
         lines.append(breakdown_lines)
+
+    q = summary.get("quality")
+    if q:
+        lines.append("\n[QUALITY GATE]")
+        status = "PASS (verified)" if q["verified"] else "FAIL (unverified)"
+        lines.append(f"  status:      {status}")
+        lines.append(f"  n={q['n']}  error_rate={q['error_rate']:.1%}")
+        for reason in q["reasons"]:
+            lines.append(f"  - {reason}")
+
     return "\n".join(lines)
