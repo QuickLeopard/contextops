@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from contextops_bench.quality import evaluate_quality_gate
@@ -257,7 +258,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <th class="text-right px-6 py-3 font-medium">Effect size (median)</th>
               <th class="text-right px-6 py-3 font-medium">Savings / 1k calls</th>
               <th class="text-right px-6 py-3 font-medium">Latency opt/base</th>
+              <th class="text-left px-6 py-3 font-medium">Confidence</th>
               <th class="text-left px-6 py-3 font-medium">Verified</th>
+              <th class="text-left px-6 py-3 font-medium">Run date</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
@@ -321,6 +324,26 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 """
 
 
+_CONFIDENCE_STYLES = {
+    "high": "bg-emerald-100 text-emerald-700",
+    "medium": "bg-amber-100 text-amber-700",
+    "low": "bg-orange-100 text-orange-700",
+    "invalid": "bg-red-100 text-red-700",
+}
+
+
+def _run_date_label(data: dict, path: Path) -> str:
+    """Return the run's timestamp, falling back to file mtime for legacy summaries."""
+    generated_at = data.get("generated_at")
+    if generated_at:
+        return str(generated_at).replace("T", " ").split("+")[0]
+    try:
+        mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        return mtime.strftime("%Y-%m-%d %H:%M") + " (file mtime)"
+    except OSError:
+        return "unknown"
+
+
 def _render_table(runs: list[dict]) -> str:
     rows = []
     for r in runs:
@@ -339,6 +362,7 @@ def _render_table(runs: list[dict]) -> str:
         cost_class = "text-emerald-600" if cost_delta < 0 else "text-slate-600"
         savings_1k = -cost_delta * 1000
         effect_size_str = f"{effect_size:+.1f}%" if effect_size is not None else "n/a"
+        run_date = _run_date_label(r["data"], ROOT / r["path"])
 
         if quality["verified"]:
             verified_badge = (
@@ -353,6 +377,18 @@ def _render_table(runs: list[dict]) -> str:
                 f'unverified</span>'
             )
 
+        confidence = quality.get("confidence", "unknown")
+        confidence_style = _CONFIDENCE_STYLES.get(confidence, "bg-slate-100 text-slate-600")
+        error_breakdown = quality.get("error_breakdown") or {}
+        error_title = (
+            "; ".join(f"{k}={v}" for k, v in sorted(error_breakdown.items()))
+            or "no errors"
+        )
+        confidence_badge = (
+            f'<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full '
+            f'text-xs font-medium {confidence_style}" title="{error_title}">{confidence}</span>'
+        )
+
         rows.append(
             f"""<tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">{r['provider']}</td>
@@ -363,7 +399,9 @@ def _render_table(runs: list[dict]) -> str:
   <td class="px-6 py-3 text-right {cost_class}">{effect_size_str}</td>
   <td class="px-6 py-3 text-right {cost_class}">${savings_1k:+.2f}</td>
   <td class="px-6 py-3 text-right">{lat_opt:.0f}ms / {lat_base:.0f}ms</td>
+  <td class="px-6 py-3">{confidence_badge}</td>
   <td class="px-6 py-3">{verified_badge}</td>
+  <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap">{run_date}</td>
 </tr>"""
         )
     return "\n".join(rows)

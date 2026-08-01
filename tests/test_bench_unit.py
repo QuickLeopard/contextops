@@ -296,6 +296,19 @@ def test_summarize_basic_stats():
     assert s["optimized"]["errors"] == 0
 
 
+def test_summarize_includes_timestamp_and_error_breakdown():
+    prompts = list(generate_many(n=20, seed=42))
+    client = EchoClient()
+    results = run_batch(prompts, client=client, parallel=1, cache_warm=False)
+    s = summarize(results)
+    assert "generated_at" in s
+    assert "T" in s["generated_at"]  # ISO 8601
+    assert s["optimized"]["error_breakdown"] == {}
+    assert s["optimized"]["error_samples"] == []
+    assert "quality" in s
+    assert s["quality"]["confidence"] == "high"
+
+
 def test_summarize_cache_warm_mode():
     """cache_warm=True should split by midpoint, not by parity."""
     prompts = list(generate_many(n=20, seed=42))

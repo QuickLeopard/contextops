@@ -6,6 +6,7 @@ import csv
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -14,7 +15,7 @@ from contextops.optimizer import reorder, count_tokens
 from contextops_bench.clients import BenchResult, CompletionResponse
 from contextops_bench.stats import bootstrap_ci, effect_size_pct
 from contextops_bench.breakdown import per_prompt_breakdown, render_breakdown_table
-from contextops_bench.quality import evaluate_quality_gate
+from contextops_bench.quality import evaluate_quality_gate, summarize_errors
 
 
 # Sections treated as "stable" content (sent in the system message for
@@ -297,7 +298,12 @@ def summarize(
     """
     n = len(results)
     if n == 0:
-        return {"optimized": {}, "baseline": {}, "delta": {}}
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "optimized": {},
+            "baseline": {},
+            "delta": {},
+        }
 
     # Filter out excluded ids (edge cases) before computing headline stats.
     excluded = exclude_ids or set()
@@ -310,6 +316,7 @@ def summarize(
     excluded_baseline = [r for r in baseline_all if r.prompt_id in excluded]
 
     summary = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "optimized": _stats(optimized),
         "baseline": _stats(baseline),
         "excluded": {
@@ -379,6 +386,7 @@ def _stats(rows: list[BenchResult]) -> dict:
             "cost_usd_total": 0.0, "cost_usd_per_call": 0.0,
             "latency_ms_p50": 0.0, "latency_ms_p95": 0.0,
             "cache_hit_rate_mean": 0.0, "cache_hit_rate_p50": 0.0,
+            "error_breakdown": {}, "error_samples": [],
         }
     prompt_tokens = [r.prompt_tokens for r in rows]
     completion_tokens = [r.completion_tokens for r in rows]
@@ -386,6 +394,7 @@ def _stats(rows: list[BenchResult]) -> dict:
     costs = [r.cost_usd for r in rows]
     latencies = [r.latency_ms for r in rows if r.latency_ms > 0]
     errors = [r for r in rows if r.error]
+    error_breakdown = summarize_errors([r.error for r in errors])
     # Cache hit rate: cached_tokens / (cached_tokens + prompt_tokens).
     # Anthropic's API reports `input_tokens` EXCLUDING cached tokens, so
     # the denominator must be the sum of cached + uncached to get a
@@ -411,12 +420,16 @@ def _stats(rows: list[BenchResult]) -> dict:
         ),
         "cache_hit_rate_mean": round(statistics.mean(cache_hits), 3) if cache_hits else 0.0,
         "cache_hit_rate_p50": round(statistics.median(cache_hits), 3) if cache_hits else 0.0,
+        "error_breakdown": error_breakdown,
+        "error_samples": [r.error for r in errors[:10]],
     }
 
 
 def render_summary(summary: dict, label: str) -> str:
     """Render summary as a fixed-width table."""
     lines = [f"=== {label} ==="]
+    if summary.get("generated_at"):
+        lines.append(f"generated_at: {summary['generated_at']}")
     for side in ("optimized", "baseline"):
         s = summary.get(side, {})
         if not s or s.get("n", 0) == 0:
@@ -428,6 +441,10 @@ def render_summary(summary: dict, label: str) -> str:
         lines.append(f"  cache hit rate:    mean={s['cache_hit_rate_mean']:.1%}  p50={s['cache_hit_rate_p50']:.1%}")
         lines.append(f"  cost / call:       ${s['cost_usd_per_call']:.6f}   total=${s['cost_usd_total']:.4f}")
         lines.append(f"  latency:           p50={s['latency_ms_p50']:.0f}ms  p95={s['latency_ms_p95']:.0f}ms")
+        error_breakdown = s.get("error_breakdown") or {}
+        if error_breakdown:
+            breakdown_str = ", ".join(f"{k}={v}" for k, v in sorted(error_breakdown.items()))
+            lines.append(f"  error breakdown:   {breakdown_str}")
 
     excluded = summary.get("excluded", {})
     if excluded.get("count", 0) > 0:
@@ -462,7 +479,11 @@ def render_summary(summary: dict, label: str) -> str:
         lines.append("\n[QUALITY GATE]")
         status = "PASS (verified)" if q["verified"] else "FAIL (unverified)"
         lines.append(f"  status:      {status}")
+        lines.append(f"  confidence:  {q['confidence']}")
         lines.append(f"  n={q['n']}  error_rate={q['error_rate']:.1%}")
+        if q.get("error_breakdown"):
+            breakdown_str = ", ".join(f"{k}={v}" for k, v in sorted(q["error_breakdown"].items()))
+            lines.append(f"  errors:      {breakdown_str}")
         for reason in q["reasons"]:
             lines.append(f"  - {reason}")
 

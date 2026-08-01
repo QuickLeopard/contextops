@@ -83,7 +83,9 @@
               <th class="text-right px-6 py-3 font-medium">Effect size (median)</th>
               <th class="text-right px-6 py-3 font-medium">Savings / 1k calls</th>
               <th class="text-right px-6 py-3 font-medium">Latency opt/base</th>
+              <th class="text-left px-6 py-3 font-medium">Confidence</th>
               <th class="text-left px-6 py-3 font-medium">Verified</th>
+              <th class="text-left px-6 py-3 font-medium">Run date</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
@@ -96,7 +98,9 @@
   <td class="px-6 py-3 text-right text-emerald-600">-0.0%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$+0.15</td>
   <td class="px-6 py-3 text-right">2028ms / 2212ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700" title="no errors">low</span></td>
   <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="error_rate=20% > max_error_rate=15%; cost delta 95% CI [-0.000768, +0.000463] includes zero; provider 'openrouter' is known to drop the cache marker for 'anthropic/claude-haiku-4.5' — cache_hit_rate is not measurable on this path">unverified</span></td>
+  <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap">2026-08-01 16:07 (file mtime)</td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">anthropic</td>
@@ -107,7 +111,9 @@
   <td class="px-6 py-3 text-right text-slate-600">n/a</td>
   <td class="px-6 py-3 text-right text-slate-600">$-7.86</td>
   <td class="px-6 py-3 text-right">1991ms / 2096ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="no errors">medium</span></td>
   <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="no confidence interval available (too few paired samples or legacy summary format); provider 'openrouter' is known to drop the cache marker for 'anthropic/claude-sonnet-4.6' — cache_hit_rate is not measurable on this path">unverified</span></td>
+  <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap">2026-07-04 06:07 (file mtime)</td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">google</td>
@@ -118,7 +124,9 @@
   <td class="px-6 py-3 text-right text-emerald-600">n/a</td>
   <td class="px-6 py-3 text-right text-emerald-600">$+0.06</td>
   <td class="px-6 py-3 text-right">1021ms / 1017ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700" title="no errors">high</span></td>
   <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="no confidence interval available (too few paired samples or legacy summary format)">unverified</span></td>
+  <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap">2026-07-04 06:26 (file mtime)</td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">openai</td>
@@ -129,7 +137,9 @@
   <td class="px-6 py-3 text-right text-emerald-600">-78.9%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$+0.33</td>
   <td class="px-6 py-3 text-right">1799ms / 2196ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="no errors">medium</span></td>
   <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">verified</span></td>
+  <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap">2026-08-01 16:22 (file mtime)</td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">zen</td>
@@ -140,7 +150,9 @@
   <td class="px-6 py-3 text-right text-emerald-600">-91.1%</td>
   <td class="px-6 py-3 text-right text-emerald-600">$+7.40</td>
   <td class="px-6 py-3 text-right">2837ms / 2757ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="no errors">medium</span></td>
   <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">verified</span></td>
+  <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap">2026-08-01 17:13 (file mtime)</td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">ollama</td>
@@ -151,7 +163,9 @@
   <td class="px-6 py-3 text-right text-slate-600">n/a</td>
   <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
   <td class="px-6 py-3 text-right">1825ms / 1702ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700" title="no errors">high</span></td>
   <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="no confidence interval available (too few paired samples or legacy summary format)">unverified</span></td>
+  <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap">2026-07-04 04:13 (file mtime)</td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">zen</td>
@@ -162,7 +176,9 @@
   <td class="px-6 py-3 text-right text-emerald-600">n/a</td>
   <td class="px-6 py-3 text-right text-emerald-600">$+7.55</td>
   <td class="px-6 py-3 text-right">2532ms / 2286ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700" title="no errors">high</span></td>
   <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="n=5 < min_n=20; no confidence interval available (too few paired samples or legacy summary format)">unverified</span></td>
+  <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap">2026-07-07 11:07 (file mtime)</td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">smoke</td>
@@ -173,7 +189,9 @@
   <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
   <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
   <td class="px-6 py-3 text-right">0ms / 0ms</td>
+  <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700" title="no errors">high</span></td>
   <td class="px-6 py-3"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title="n=10 < min_n=20; cost delta 95% CI [+0.000000, +0.000000] includes zero">unverified</span></td>
+  <td class="px-6 py-3 text-slate-500 text-xs whitespace-nowrap">2026-07-08 18:12 (file mtime)</td>
 </tr>
           </tbody>
         </table>

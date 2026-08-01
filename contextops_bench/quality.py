@@ -13,6 +13,8 @@ them) carries an honest "is this real?" verdict instead of just raw numbers.
 
 from __future__ import annotations
 
+import re
+
 # A run needs at least this many paired (optimized, baseline) observations
 # after error/edge-case exclusion to be considered adequately powered.
 MIN_N = 20
@@ -40,6 +42,78 @@ def cache_marker_dropped(provider: str, model: str) -> bool:
     )
 
 
+# Error categories, ordered from most to least severe for confidence scoring.
+# "auth" errors (401/403) mean the request never reached the model at all —
+# they invalidate the run rather than just adding noise, since they usually
+# indicate an expired/rotated/invalid API key affecting some or all calls.
+ERROR_CATEGORIES = ("auth", "rate_limit", "server_error", "client_error", "network", "unknown")
+
+_HTTP_ERROR_RE = re.compile(r"HTTP Error (\d{3})")
+_STATUS_CODE_RE = re.compile(r"\b(\d{3})\b")
+_NETWORK_PATTERNS = (
+    "ssl", "eof", "remote end closed", "connection reset", "connection refused",
+    "timed out", "timeout", "urlopen error", "broken pipe", "name or service not known",
+)
+
+
+def classify_error(message: str) -> str:
+    """Categorize a raw error string into one of `ERROR_CATEGORIES`.
+
+    Looks for an HTTP status code first (`HTTP Error 403: Forbidden` style,
+    as raised by `urllib.error.HTTPError`), then falls back to matching
+    common network-failure substrings (SSL resets, timeouts, connection
+    drops — the actual errors observed in real bench runs so far).
+    """
+    if not message:
+        return "unknown"
+    msg = message.lower()
+
+    code_match = _HTTP_ERROR_RE.search(message) or _STATUS_CODE_RE.search(message)
+    if code_match:
+        code = int(code_match.group(1))
+        if code in (401, 403):
+            return "auth"
+        if code == 429:
+            return "rate_limit"
+        if 500 <= code < 600:
+            return "server_error"
+        if 400 <= code < 500:
+            return "client_error"
+
+    if any(pattern in msg for pattern in _NETWORK_PATTERNS):
+        return "network"
+
+    return "unknown"
+
+
+def summarize_errors(error_messages: list[str]) -> dict[str, int]:
+    """Count error messages by category. Returns e.g. {"network": 3, "auth": 1}."""
+    breakdown: dict[str, int] = {}
+    for msg in error_messages:
+        category = classify_error(msg)
+        breakdown[category] = breakdown.get(category, 0) + 1
+    return breakdown
+
+
+def confidence_level(error_rate: float, error_breakdown: dict[str, int] | None = None) -> str:
+    """Map error rate + error severity to a human-readable confidence label.
+
+    Any `auth` errors force "invalid" regardless of rate: an auth failure
+    means the API key was rejected for at least one call, which usually
+    means it was rejected for a batch of adjacent calls too (rotated/rate
+    -limited key), making the whole run's numbers suspect rather than just
+    "a bit noisy". Otherwise, confidence degrades smoothly with error rate.
+    """
+    breakdown = error_breakdown or {}
+    if breakdown.get("auth", 0) > 0:
+        return "invalid"
+    if error_rate <= 0.05:
+        return "high"
+    if error_rate <= MAX_ERROR_RATE:
+        return "medium"
+    return "low"
+
+
 def evaluate_quality_gate(
     summary: dict,
     *,
@@ -51,9 +125,10 @@ def evaluate_quality_gate(
     """Compute a deterministic pass/fail quality gate for a bench summary.
 
     `verified=True` means: adequately powered (n >= min_n), low error rate,
-    and a cost-delta 95% CI that excludes zero (statistically significant)
-    — regardless of the direction of that delta. A significant *increase*
-    in cost is just as "verified" as a decrease; it simply isn't a "win".
+    no detected auth failures, and a cost-delta 95% CI that excludes zero
+    (statistically significant) — regardless of the direction of that delta.
+    A significant *increase* in cost is just as "verified" as a decrease;
+    it simply isn't a "win".
 
     Returns a dict with individual boolean flags plus human-readable
     `reasons` for any failure, so callers (CLI output, dashboard) can
@@ -67,6 +142,14 @@ def evaluate_quality_gate(
     opt_err_rate = (opt.get("errors", 0) / opt["n"]) if opt.get("n") else 1.0
     base_err_rate = (base.get("errors", 0) / base["n"]) if base.get("n") else 1.0
     error_rate = max(opt_err_rate, base_err_rate)
+
+    # Combine both arms' error breakdowns (if present) for confidence scoring.
+    error_breakdown: dict[str, int] = {}
+    for arm in (opt, base):
+        for category, count in (arm.get("error_breakdown") or {}).items():
+            error_breakdown[category] = error_breakdown.get(category, 0) + count
+    confidence = confidence_level(error_rate, error_breakdown)
+    has_auth_errors = error_breakdown.get("auth", 0) > 0
 
     low_n = n < min_n
     high_error_rate = error_rate > max_error_rate
@@ -85,6 +168,11 @@ def evaluate_quality_gate(
     reasons: list[str] = []
     if low_n:
         reasons.append(f"n={n} < min_n={min_n}")
+    if has_auth_errors:
+        reasons.append(
+            f"{error_breakdown['auth']} auth error(s) detected (401/403) — "
+            f"API key was rejected for at least one call, results are unreliable"
+        )
     if high_error_rate:
         reasons.append(f"error_rate={error_rate:.0%} > max_error_rate={max_error_rate:.0%}")
     if not has_ci:
@@ -97,18 +185,26 @@ def evaluate_quality_gate(
             f"{model!r} — cache_hit_rate is not measurable on this path"
         )
 
-    # `marker_dropped` blocks `verified` too: if the cache marker is known to
-    # be stripped on this path, any cost delta we observe isn't attributable
-    # evidence of ContextOps' reordering effect, even if it's statistically
-    # significant — the mechanism this tool relies on structurally can't
-    # operate here.
-    verified = not low_n and not high_error_rate and significant and not marker_dropped
+    # `marker_dropped` and detected auth errors both block `verified`: a
+    # cache marker that structurally can't survive means any cost delta
+    # isn't attributable evidence, and auth errors mean some calls never
+    # reached the model at all, regardless of statistical significance.
+    verified = (
+        not low_n
+        and not high_error_rate
+        and not has_auth_errors
+        and significant
+        and not marker_dropped
+    )
 
     return {
         "n": n,
         "error_rate": round(error_rate, 3),
+        "error_breakdown": error_breakdown,
+        "confidence": confidence,
         "low_n": low_n,
         "high_error_rate": high_error_rate,
+        "has_auth_errors": has_auth_errors,
         "has_ci": has_ci,
         "significant": significant,
         "cache_marker_dropped": marker_dropped,

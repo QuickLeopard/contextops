@@ -6,7 +6,10 @@ from contextops_bench.quality import (
     MAX_ERROR_RATE,
     MIN_N,
     cache_marker_dropped,
+    classify_error,
+    confidence_level,
     evaluate_quality_gate,
+    summarize_errors,
 )
 
 
@@ -96,3 +99,56 @@ def test_empty_summary_does_not_crash():
     gate = evaluate_quality_gate({}, provider="", model="")
     assert gate["verified"] is False
     assert gate["low_n"] is True
+
+
+def test_classify_error_http_status_codes():
+    assert classify_error("HTTP Error 403: Forbidden") == "auth"
+    assert classify_error("HTTP Error 401: Unauthorized") == "auth"
+    assert classify_error("HTTP Error 429: Too Many Requests") == "rate_limit"
+    assert classify_error("HTTP Error 500: Internal Server Error") == "server_error"
+    assert classify_error("HTTP Error 400: Bad Request") == "client_error"
+
+
+def test_classify_error_network_patterns():
+    assert classify_error("Remote end closed connection without response") == "network"
+    assert classify_error(
+        "<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol>"
+    ) == "network"
+    assert classify_error("Connection timed out") == "network"
+
+
+def test_classify_error_unknown_and_empty():
+    assert classify_error("") == "unknown"
+    assert classify_error("something weird happened") == "unknown"
+
+
+def test_summarize_errors_counts_by_category():
+    breakdown = summarize_errors([
+        "HTTP Error 403: Forbidden",
+        "HTTP Error 403: Forbidden",
+        "Remote end closed connection without response",
+    ])
+    assert breakdown == {"auth": 2, "network": 1}
+
+
+def test_confidence_level_forces_invalid_on_auth_errors():
+    assert confidence_level(0.01, {"auth": 1}) == "invalid"
+    assert confidence_level(0.0, {"auth": 5}) == "invalid"
+
+
+def test_confidence_level_scales_with_error_rate():
+    assert confidence_level(0.0, {}) == "high"
+    assert confidence_level(0.05, {}) == "high"
+    assert confidence_level(0.10, {"network": 3}) == "medium"
+    assert confidence_level(0.30, {"network": 9}) == "low"
+
+
+def test_evaluate_quality_gate_blocks_verified_on_auth_errors():
+    """Even a low error rate with an auth error present should not be verified."""
+    summary = _summary(n_opt=30, n_base=30, errors_opt=0, errors_base=0)
+    summary["optimized"]["error_breakdown"] = {"auth": 1}
+    gate = evaluate_quality_gate(summary, provider="openai", model="gpt-4o-mini")
+    assert gate["verified"] is False
+    assert gate["has_auth_errors"] is True
+    assert gate["confidence"] == "invalid"
+    assert any("auth error" in r for r in gate["reasons"])
