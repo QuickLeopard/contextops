@@ -1,0 +1,181 @@
+{
+  "optimized": {
+    "n": 30,
+    "errors": 3,
+    "prompt_tokens_mean": 3406.6,
+    "prompt_tokens_p50": 3405.0,
+    "completion_tokens_mean": 25.7,
+    "cached_tokens_mean": 2560,
+    "cost_usd_total": 0.003934,
+    "cost_usd_per_call": 0.000131,
+    "latency_ms_p50": 1799.4,
+    "latency_ms_p95": 12125.1,
+    "cache_hit_rate_mean": 0.394,
+    "cache_hit_rate_p50": 0.468
+  },
+  "baseline": {
+    "n": 30,
+    "errors": 4,
+    "prompt_tokens_mean": 3404.1,
+    "prompt_tokens_p50": 3402.0,
+    "completion_tokens_mean": 26.4,
+    "cached_tokens_mean": 0,
+    "cost_usd_total": 0.013754,
+    "cost_usd_per_call": 0.000458,
+    "latency_ms_p50": 2195.9,
+    "latency_ms_p95": 16544.4,
+    "cache_hit_rate_mean": 0.0,
+    "cache_hit_rate_p50": 0.0
+  },
+  "excluded": {
+    "optimized": {
+      "n": 0,
+      "errors": 0,
+      "prompt_tokens_mean": 0.0,
+      "prompt_tokens_p50": 0.0,
+      "completion_tokens_mean": 0.0,
+      "cached_tokens_mean": 0.0,
+      "cost_usd_total": 0.0,
+      "cost_usd_per_call": 0.0,
+      "latency_ms_p50": 0.0,
+      "latency_ms_p95": 0.0,
+      "cache_hit_rate_mean": 0.0,
+      "cache_hit_rate_p50": 0.0
+    },
+    "baseline": {
+      "n": 0,
+      "errors": 0,
+      "prompt_tokens_mean": 0.0,
+      "prompt_tokens_p50": 0.0,
+      "completion_tokens_mean": 0.0,
+      "cached_tokens_mean": 0.0,
+      "cost_usd_total": 0.0,
+      "cost_usd_per_call": 0.0,
+      "latency_ms_p50": 0.0,
+      "latency_ms_p95": 0.0,
+      "cache_hit_rate_mean": 0.0,
+      "cache_hit_rate_p50": 0.0
+    },
+    "count": 0
+  },
+  "delta": {
+    "cache_hit_rate_delta": 0.394,
+    "cost_per_call_delta_usd": -0.000327,
+    "prompt_tokens_delta_mean": 2.5,
+    "cost_delta_ci_low_usd": -0.000395,
+    "cost_delta_ci_high_usd": -0.000249,
+    "effect_size_pct": -78.94
+  },
+  "breakdown": [
+    {
+      "prompt_id": 24,
+      "model": "openai/gpt-4o-mini",
+      "prompt_tokens": 3354,
+      "baseline_cost": 0.000518,
+      "optimized_cost": 9.3e-05,
+      "delta_cost": -0.000425,
+      "delta_pct": -82.0,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.478
+    },
+    {
+      "prompt_id": 7,
+      "model": "openai/gpt-4o-mini",
+      "prompt_tokens": 3156,
+      "baseline_cost": 0.000492,
+      "optimized_cost": 6.8e-05,
+      "delta_cost": -0.000424,
+      "delta_pct": -86.13,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.493
+    },
+    {
+      "prompt_id": 19,
+      "model": "openai/gpt-4o-mini",
+      "prompt_tokens": 3533,
+      "baseline_cost": 0.000543,
+      "optimized_cost": 0.000119,
+      "delta_cost": -0.000424,
+      "delta_pct": -78.02,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.465
+    },
+    {
+      "prompt_id": 20,
+      "model": "openai/gpt-4o-mini",
+      "prompt_tokens": 3587,
+      "baseline_cost": 0.000557,
+      "optimized_cost": 0.000139,
+      "delta_cost": -0.000418,
+      "delta_pct": -75.05,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.461
+    },
+    {
+      "prompt_id": 2,
+      "model": "openai/gpt-4o-mini",
+      "prompt_tokens": 3318,
+      "baseline_cost": 0.000516,
+      "optimized_cost": 0.000102,
+      "delta_cost": -0.000414,
+      "delta_pct": -80.21,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.481
+    },
+    {
+      "prompt_id": 5,
+      "model": "openai/gpt-4o-mini",
+      "prompt_tokens": 3469,
+      "baseline_cost": 0.000539,
+      "optimized_cost": 0.000125,
+      "delta_cost": -0.000414,
+      "delta_pct": -76.84,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.47
+    },
+    {
+      "prompt_id": 6,
+      "model": "openai/gpt-4o-mini",
+      "prompt_tokens": 3595,
+      "baseline_cost": 0.000558,
+      "optimized_cost": 0.000144,
+      "delta_cost": -0.000414,
+      "delta_pct": -74.24,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.461
+    },
+    {
+      "prompt_id": 8,
+      "model": "openai/gpt-4o-mini",
+      "prompt_tokens": 3442,
+      "baseline_cost": 0.000535,
+      "optimized_cost": 0.000121,
+      "delta_cost": -0.000414,
+      "delta_pct": -77.43,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.472
+    },
+    {
+      "prompt_id": 9,
+      "model": "openai/gpt-4o-mini",
+      "prompt_tokens": 3521,
+      "baseline_cost": 0.000547,
+      "optimized_cost": 0.000133,
+      "delta_cost": -0.000414,
+      "delta_pct": -75.75,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.466
+    },
+    {
+      "prompt_id": 10,
+      "model": "openai/gpt-4o-mini",
+      "prompt_tokens": 3212,
+      "baseline_cost": 0.000501,
+      "optimized_cost": 8.6e-05,
+      "delta_cost": -0.000414,
+      "delta_pct": -82.76,
+      "baseline_cache_hit": 0.0,
+      "optimized_cache_hit": 0.489
+    }
+  ]
+}

@@ -28,11 +28,11 @@
     <section class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-10">
       <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
         <p class="text-sm font-medium text-slate-500">Runs</p>
-        <p class="text-3xl font-bold">9</p>
+        <p class="text-3xl font-bold">7</p>
       </div>
       <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
         <p class="text-sm font-medium text-slate-500">Significant wins</p>
-        <p class="text-3xl font-bold text-emerald-600">2</p>
+        <p class="text-3xl font-bold text-emerald-600">3</p>
         <p class="text-xs text-slate-400">hit &Delta; &gt;1pp + cost &Delta; &gt;$0</p>
       </div>
       <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
@@ -46,7 +46,7 @@
       </div>
       <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
         <p class="text-sm font-medium text-slate-500">Avg cache-hit &Delta;</p>
-        <p class="text-3xl font-bold text-blue-600">+12.2%</p>
+        <p class="text-3xl font-bold text-blue-600">+19.7%</p>
       </div>
     </section>
 
@@ -79,21 +79,12 @@
           <tbody class="divide-y divide-slate-100">
             <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">anthropic</td>
-  <td class="px-6 py-3 text-slate-600">claude-3.5-haiku</td>
+  <td class="px-6 py-3 text-slate-600">claude-haiku-4.5</td>
   <td class="px-6 py-3 text-right">50/50</td>
   <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
-  <td class="px-6 py-3 text-right text-slate-600">$+0.000000</td>
-  <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
-  <td class="px-6 py-3 text-right">0ms / 0ms</td>
-</tr>
-<tr class="hover:bg-slate-50">
-  <td class="px-6 py-3 font-medium">anthropic</td>
-  <td class="px-6 py-3 text-slate-600">claude-haiku-4.5</td>
-  <td class="px-6 py-3 text-right">30/30</td>
-  <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
-  <td class="px-6 py-3 text-right text-emerald-600">$-0.000001</td>
-  <td class="px-6 py-3 text-right text-emerald-600">$+0.00</td>
-  <td class="px-6 py-3 text-right">1572ms / 1455ms</td>
+  <td class="px-6 py-3 text-right text-emerald-600">$-0.000155</td>
+  <td class="px-6 py-3 text-right text-emerald-600">$+0.15</td>
+  <td class="px-6 py-3 text-right">2028ms / 2212ms</td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">anthropic</td>
@@ -103,15 +94,6 @@
   <td class="px-6 py-3 text-right text-slate-600">$+0.007863</td>
   <td class="px-6 py-3 text-right text-slate-600">$-7.86</td>
   <td class="px-6 py-3 text-right">1991ms / 2096ms</td>
-</tr>
-<tr class="hover:bg-slate-50">
-  <td class="px-6 py-3 font-medium">claude-sonnet-4-6</td>
-  <td class="px-6 py-3 text-slate-600">claude-sonnet-4-6</td>
-  <td class="px-6 py-3 text-right">5/5</td>
-  <td class="px-6 py-3 text-right text-emerald-600">+10.9%</td>
-  <td class="px-6 py-3 text-right text-slate-600">$+0.000000</td>
-  <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
-  <td class="px-6 py-3 text-right">0ms / 0ms</td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">google</td>
@@ -126,10 +108,10 @@
   <td class="px-6 py-3 font-medium">openai</td>
   <td class="px-6 py-3 text-slate-600">gpt-4o-mini</td>
   <td class="px-6 py-3 text-right">30/30</td>
-  <td class="px-6 py-3 text-right text-slate-600">+0.0%</td>
-  <td class="px-6 py-3 text-right text-slate-600">$+0.000000</td>
-  <td class="px-6 py-3 text-right text-slate-600">$-0.00</td>
-  <td class="px-6 py-3 text-right">1163ms / 1401ms</td>
+  <td class="px-6 py-3 text-right text-emerald-600">+39.4%</td>
+  <td class="px-6 py-3 text-right text-emerald-600">$-0.000327</td>
+  <td class="px-6 py-3 text-right text-emerald-600">$+0.33</td>
+  <td class="px-6 py-3 text-right">1799ms / 2196ms</td>
 </tr>
 <tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">ollama</td>
@@ -165,12 +147,12 @@
   </div>
 
   <script>
-    const labels = ["anthropic \u00b7 claude-3.5-haiku", "anthropic \u00b7 claude-haiku-4.5", "anthropic \u00b7 claude-sonnet-4.6", "claude-sonnet-4-6 \u00b7 claude-sonnet-4-6", "google \u00b7 gemini-2.5-flash", "openai \u00b7 gpt-4o-mini", "ollama \u00b7 ollama", "zen \u00b7 n5", "smoke \u00b7 smoke"];
-    const optimizedHits = [0.0, 0.0, 0.188, 0.135, 0.055, 0.0, 0.0, 0.749, 0.038];
-    const baselineHits = [0.0, 0.0, 0.0, 0.026, 0.0, 0.0, 0.0, 0.0, 0.042];
-    const optimizedCosts = [0.0, 0.003892, 0.019097, 0.0, 0.001087, 0.000218, 0.0, 0.003598, 0.0];
-    const baselineCosts = [0.0, 0.003893, 0.011234, 0.0, 0.001144, 0.000218, 0.0, 0.011145, 0.0];
-    const deltas = [0.0, 0.0, 0.188, 0.109, 0.055, 0.0, 0.0, 0.749, -0.004];
+    const labels = ["anthropic \u00b7 claude-haiku-4.5", "anthropic \u00b7 claude-sonnet-4.6", "google \u00b7 gemini-2.5-flash", "openai \u00b7 gpt-4o-mini", "ollama \u00b7 ollama", "zen \u00b7 n5", "smoke \u00b7 smoke"];
+    const optimizedHits = [0.0, 0.188, 0.055, 0.394, 0.0, 0.749, 0.038];
+    const baselineHits = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.042];
+    const optimizedCosts = [0.003112, 0.019097, 0.001087, 0.000131, 0.0, 0.003598, 0.0];
+    const baselineCosts = [0.003267, 0.011234, 0.001144, 0.000458, 0.0, 0.011145, 0.0];
+    const deltas = [0.0, 0.188, 0.055, 0.394, 0.0, 0.749, -0.004];
 
     const commonOptions = {
       responsive: true,

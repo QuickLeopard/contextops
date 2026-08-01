@@ -1,0 +1,61 @@
+prompt_id,model,provider,use_optimized,prompt_tokens,completion_tokens,cached_tokens,cost_usd,latency_ms,error,section_order
+0,openai/gpt-4o-mini,openrouter,True,3173,32,0,0.00049515,1705.2061557769775,,system|tools|role|query
+1,openai/gpt-4o-mini,openrouter,True,3364,32,0,0.0005237999999999999,6105.5707931518555,,system|tools|role|documents|query
+2,openai/gpt-4o-mini,openrouter,True,3318,32,3072,0.00010218,1781.991958618164,,system|tools|role|context|history|query
+3,openai/gpt-4o-mini,openrouter,True,3408,32,3072,0.00011568,4201.547861099243,,system|tools|role|context|history|query
+4,openai/gpt-4o-mini,openrouter,True,3333,32,3072,0.00010443,1537.3589992523193,,system|tools|role|documents|query
+5,openai/gpt-4o-mini,openrouter,True,3469,32,3072,0.00012483,2192.171096801758,,system|tools|role|context|documents|query
+6,openai/gpt-4o-mini,openrouter,True,3595,32,3072,0.00014373,5570.549249649048,,system|tools|role|context|documents|query
+7,openai/gpt-4o-mini,openrouter,True,3156,16,3072,6.828e-05,2081.570863723755,,system|tools|role|query
+8,openai/gpt-4o-mini,openrouter,True,3442,32,3072,0.00012077999999999999,12125.085830688477,,system|tools|role|context|documents|history|query
+9,openai/gpt-4o-mini,openrouter,True,3521,32,3072,0.00013263,1985.1970672607422,,system|tools|role|documents|history|query
+10,openai/gpt-4o-mini,openrouter,True,3212,32,3072,8.628e-05,6974.207878112793,,system|tools|role|context|query
+11,openai/gpt-4o-mini,openrouter,True,3393,32,3072,0.00011343,12798.06113243103,,system|tools|role|context|history|query
+12,openai/gpt-4o-mini,openrouter,True,3621,32,3072,0.00014763,1826.1449337005615,,system|tools|role|context|documents|history|query
+13,openai/gpt-4o-mini,openrouter,True,3488,32,3072,0.00012768,1620.8412647247314,,system|tools|role|context|documents|history|query
+14,openai/gpt-4o-mini,openrouter,True,3565,32,3072,0.00013923,1566.7130947113037,,system|tools|role|context|documents|query
+15,openai/gpt-4o-mini,openrouter,True,3488,32,3072,0.00012768,1401.0398387908936,,system|tools|role|context|documents|history|query
+16,openai/gpt-4o-mini,openrouter,True,3486,32,3072,0.00012738,1787.88423538208,,system|tools|role|context|documents|query
+17,openai/gpt-4o-mini,openrouter,True,3226,32,3072,8.837999999999999e-05,1576.6520500183105,,system|tools|role|history|query
+18,openai/gpt-4o-mini,openrouter,True,3518,32,3072,0.00013218,1498.2142448425293,,system|tools|role|context|documents|query
+19,openai/gpt-4o-mini,openrouter,True,3533,7,3072,0.00011942999999999999,1635.4889869689941,,system|tools|role|context|documents|query
+20,openai/gpt-4o-mini,openrouter,True,3587,26,3072,0.00013893,1799.3788719177246,,system|tools|role|context|documents|history|query
+21,openai/gpt-4o-mini,openrouter,True,3445,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|context|documents|history|query
+22,openai/gpt-4o-mini,openrouter,True,3277,32,3072,9.602999999999999e-05,8353.26075553894,,system|tools|role|documents|history|query
+23,openai/gpt-4o-mini,openrouter,True,3347,32,3072,0.00010653,7732.477903366089,,system|tools|role|context|query
+24,openai/gpt-4o-mini,openrouter,True,3354,8,3072,9.318e-05,1496.565818786621,,system|tools|role|context|query
+25,openai/gpt-4o-mini,openrouter,True,3383,32,3072,0.00011193,1702.8992176055908,,system|tools|role|documents|history|query
+26,openai/gpt-4o-mini,openrouter,True,3402,9,3072,0.00010098,1501.8091201782227,,system|tools|role|context|documents|history|query
+27,openai/gpt-4o-mini,openrouter,True,3611,32,3072,0.00014613,2224.6172428131104,,system|tools|role|context|documents|query
+28,openai/gpt-4o-mini,openrouter,True,3287,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|context|history|query
+29,openai/gpt-4o-mini,openrouter,True,3197,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|history|query
+0,openai/gpt-4o-mini,openrouter,False,3170,32,0,0.0004947,1750.6942749023438,,query|role|tools|system
+1,openai/gpt-4o-mini,openrouter,False,3361,32,0,0.00052335,2026.8809795379639,,query|documents|role|tools|system
+2,openai/gpt-4o-mini,openrouter,False,3315,32,0,0.00051645,1536.8859767913818,,query|history|context|role|tools|system
+3,openai/gpt-4o-mini,openrouter,False,3404,0,0,0.0,0.0,Remote end closed connection without response,query|history|context|role|tools|system
+4,openai/gpt-4o-mini,openrouter,False,3335,0,0,0.0,0.0,Remote end closed connection without response,query|documents|role|tools|system
+5,openai/gpt-4o-mini,openrouter,False,3466,32,0,0.0005391,9030.66873550415,,query|documents|context|role|tools|system
+6,openai/gpt-4o-mini,openrouter,False,3592,32,0,0.000558,2344.5069789886475,,query|documents|context|role|tools|system
+7,openai/gpt-4o-mini,openrouter,False,3153,32,0,0.00049215,1679.6841621398926,,query|role|tools|system
+8,openai/gpt-4o-mini,openrouter,False,3439,32,0,0.00053505,2631.0040950775146,,query|history|documents|context|role|tools|system
+9,openai/gpt-4o-mini,openrouter,False,3518,32,0,0.0005469,4442.38805770874,,query|history|documents|role|tools|system
+10,openai/gpt-4o-mini,openrouter,False,3209,32,0,0.00050055,2148.020029067993,,query|context|role|tools|system
+11,openai/gpt-4o-mini,openrouter,False,3390,32,0,0.0005277,2591.477870941162,,query|history|context|role|tools|system
+12,openai/gpt-4o-mini,openrouter,False,3618,32,0,0.0005619,1896.576166152954,,query|history|documents|context|role|tools|system
+13,openai/gpt-4o-mini,openrouter,False,3485,32,0,0.00054195,2249.3557929992676,,query|history|documents|context|role|tools|system
+14,openai/gpt-4o-mini,openrouter,False,3562,32,0,0.0005535000000000001,16544.42811012268,,query|documents|context|role|tools|system
+15,openai/gpt-4o-mini,openrouter,False,3486,32,0,0.0005421,2068.3746337890625,,query|history|documents|context|role|tools|system
+16,openai/gpt-4o-mini,openrouter,False,3483,32,0,0.00054165,2094.6459770202637,,query|documents|context|role|tools|system
+17,openai/gpt-4o-mini,openrouter,False,3223,32,0,0.00050265,2321.6068744659424,,query|history|role|tools|system
+18,openai/gpt-4o-mini,openrouter,False,3513,0,0,0.0,0.0,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1082)>,query|documents|context|role|tools|system
+19,openai/gpt-4o-mini,openrouter,False,3531,23,0,0.00054345,1693.27712059021,,query|documents|context|role|tools|system
+20,openai/gpt-4o-mini,openrouter,False,3584,32,0,0.0005568,2655.457019805908,,query|history|documents|context|role|tools|system
+21,openai/gpt-4o-mini,openrouter,False,3445,32,0,0.00053595,1864.879846572876,,query|history|documents|context|role|tools|system
+22,openai/gpt-4o-mini,openrouter,False,3274,32,0,0.0005103,2355.060815811157,,query|history|documents|role|tools|system
+23,openai/gpt-4o-mini,openrouter,False,3343,0,0,0.0,0.0,Remote end closed connection without response,query|context|role|tools|system
+24,openai/gpt-4o-mini,openrouter,False,3352,25,0,0.0005178,15498.607873916626,,query|context|role|tools|system
+25,openai/gpt-4o-mini,openrouter,False,3380,32,0,0.0005262,21339.437007904053,,query|history|documents|role|tools|system
+26,openai/gpt-4o-mini,openrouter,False,3400,8,0,0.0005147999999999999,1433.0780506134033,,query|history|documents|context|role|tools|system
+27,openai/gpt-4o-mini,openrouter,False,3608,32,0,0.0005604000000000001,2063.383102416992,,query|documents|context|role|tools|system
+28,openai/gpt-4o-mini,openrouter,False,3285,32,0,0.0005119500000000001,1527.9967784881592,,query|history|context|role|tools|system
+29,openai/gpt-4o-mini,openrouter,False,3198,32,0,0.0004988999999999999,2243.8337802886963,,query|history|role|tools|system

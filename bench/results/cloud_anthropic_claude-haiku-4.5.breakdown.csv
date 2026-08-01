@@ -1,0 +1,11 @@
+prompt_id,model,prompt_tokens,baseline_cost,optimized_cost,delta_cost,delta_pct,baseline_cache_hit,optimized_cache_hit
+10,anthropic/claude-haiku-4.5,3559,0.003721,0.003719,-2e-06,-0.05,0.0,0.0
+20,anthropic/claude-haiku-4.5,3970,0.004132,0.00413,-2e-06,-0.05,0.0,0.0
+28,anthropic/claude-haiku-4.5,3650,0.003812,0.00381,-2e-06,-0.05,0.0,0.0
+0,anthropic/claude-haiku-4.5,3519,0.00368,0.003679,-1e-06,-0.03,0.0,0.0
+1,anthropic/claude-haiku-4.5,3726,0.003887,0.003886,-1e-06,-0.03,0.0,0.0
+2,anthropic/claude-haiku-4.5,3679,0.00384,0.003839,-1e-06,-0.03,0.0,0.0
+4,anthropic/claude-haiku-4.5,3688,0.003849,0.003848,-1e-06,-0.03,0.0,0.0
+5,anthropic/claude-haiku-4.5,3827,0.003988,0.003987,-1e-06,-0.03,0.0,0.0
+6,anthropic/claude-haiku-4.5,3992,0.004153,0.004152,-1e-06,-0.02,0.0,0.0
+7,anthropic/claude-haiku-4.5,3497,0.003658,0.003657,-1e-06,-0.03,0.0,0.0

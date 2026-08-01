@@ -1,0 +1,101 @@
+prompt_id,model,provider,use_optimized,prompt_tokens,completion_tokens,cached_tokens,cost_usd,latency_ms,error,section_order
+0,anthropic/claude-haiku-4.5,openrouter,True,3519,32,0,0.003679,1980.3671836853027,,system|tools|role|query
+1,anthropic/claude-haiku-4.5,openrouter,True,3726,32,0,0.003886,2127.5291442871094,,system|tools|role|documents|query
+2,anthropic/claude-haiku-4.5,openrouter,True,3679,32,0,0.003839,1871.90580368042,,system|tools|role|context|history|query
+3,anthropic/claude-haiku-4.5,openrouter,True,3773,32,0,0.003933,1853.5680770874023,,system|tools|role|context|history|query
+4,anthropic/claude-haiku-4.5,openrouter,True,3688,32,0,0.003848,11086.974143981934,,system|tools|role|documents|query
+5,anthropic/claude-haiku-4.5,openrouter,True,3827,32,0,0.003987,2162.5430583953857,,system|tools|role|context|documents|query
+6,anthropic/claude-haiku-4.5,openrouter,True,3992,32,0,0.0041519999999999994,1812.6771450042725,,system|tools|role|context|documents|query
+7,anthropic/claude-haiku-4.5,openrouter,True,3497,32,0,0.003657,1587.4879360198975,,system|tools|role|query
+8,anthropic/claude-haiku-4.5,openrouter,True,3808,32,0,0.003968,1701.4129161834717,,system|tools|role|context|documents|history|query
+9,anthropic/claude-haiku-4.5,openrouter,True,3899,32,0,0.004059,2615.13090133667,,system|tools|role|documents|history|query
+10,anthropic/claude-haiku-4.5,openrouter,True,3559,32,0,0.003719,2151.7128944396973,,system|tools|role|context|query
+11,anthropic/claude-haiku-4.5,openrouter,True,3761,32,0,0.003921,9940.229892730713,,system|tools|role|context|history|query
+12,anthropic/claude-haiku-4.5,openrouter,True,3621,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|context|documents|history|query
+13,anthropic/claude-haiku-4.5,openrouter,True,3872,32,0,0.004032,2073.7671852111816,,system|tools|role|context|documents|history|query
+14,anthropic/claude-haiku-4.5,openrouter,True,3951,32,0,0.004111,1889.5537853240967,,system|tools|role|context|documents|query
+15,anthropic/claude-haiku-4.5,openrouter,True,3859,32,0,0.004019,1826.639175415039,,system|tools|role|context|documents|history|query
+16,anthropic/claude-haiku-4.5,openrouter,True,3481,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|context|documents|query
+17,anthropic/claude-haiku-4.5,openrouter,True,3586,32,0,0.003746,13756.478786468506,,system|tools|role|history|query
+18,anthropic/claude-haiku-4.5,openrouter,True,3893,32,0,0.004053,19749.00794029236,,system|tools|role|context|documents|query
+19,anthropic/claude-haiku-4.5,openrouter,True,3528,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|context|documents|query
+20,anthropic/claude-haiku-4.5,openrouter,True,3970,32,0,0.00413,1982.3439121246338,,system|tools|role|context|documents|history|query
+21,anthropic/claude-haiku-4.5,openrouter,True,3445,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|context|documents|history|query
+22,anthropic/claude-haiku-4.5,openrouter,True,3619,32,0,0.003779,6225.045919418335,,system|tools|role|documents|history|query
+23,anthropic/claude-haiku-4.5,openrouter,True,3706,32,0,0.003866,1623.6443519592285,,system|tools|role|context|query
+24,anthropic/claude-haiku-4.5,openrouter,True,3717,32,0,0.003877,2081.2857151031494,,system|tools|role|context|query
+25,anthropic/claude-haiku-4.5,openrouter,True,3734,32,0,0.003894,14643.523931503296,,system|tools|role|documents|history|query
+26,anthropic/claude-haiku-4.5,openrouter,True,3408,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|context|documents|history|query
+27,anthropic/claude-haiku-4.5,openrouter,True,3989,32,0,0.004149,1837.0692729949951,,system|tools|role|context|documents|query
+28,anthropic/claude-haiku-4.5,openrouter,True,3650,32,0,0.00381,1863.4800910949707,,system|tools|role|context|history|query
+29,anthropic/claude-haiku-4.5,openrouter,True,3197,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|history|query
+30,anthropic/claude-haiku-4.5,openrouter,True,3840,32,0,0.004,3641.7689323425293,,system|tools|role|documents|history|query
+31,anthropic/claude-haiku-4.5,openrouter,True,3731,32,0,0.003891,2349.5938777923584,,system|tools|role|context|history|query
+32,anthropic/claude-haiku-4.5,openrouter,True,3682,32,0,0.003842,2239.46475982666,,system|tools|role|context|documents|query
+33,anthropic/claude-haiku-4.5,openrouter,True,3195,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|history|query
+34,anthropic/claude-haiku-4.5,openrouter,True,3620,32,0,0.00378,2324.5770931243896,,system|tools|role|context|query
+35,anthropic/claude-haiku-4.5,openrouter,True,3371,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|context|history|query
+36,anthropic/claude-haiku-4.5,openrouter,True,3697,32,0,0.003857,2059.830904006958,,system|tools|role|documents|history|query
+37,anthropic/claude-haiku-4.5,openrouter,True,3208,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|documents|query
+38,anthropic/claude-haiku-4.5,openrouter,True,3752,32,0,0.0039120000000000005,1876.08003616333,,system|tools|role|documents|history|query
+39,anthropic/claude-haiku-4.5,openrouter,True,3650,32,0,0.00381,17599.358081817627,,system|tools|role|context|documents|query
+40,anthropic/claude-haiku-4.5,openrouter,True,3532,32,0,0.003692,2200.439929962158,,system|tools|role|history|query
+41,anthropic/claude-haiku-4.5,openrouter,True,3307,0,0,0.0,0.0,Remote end closed connection without response,system|tools|role|context|history|query
+42,anthropic/claude-haiku-4.5,openrouter,True,3612,32,0,0.003772,1825.0889778137207,,system|tools|role|context|query
+43,anthropic/claude-haiku-4.5,openrouter,True,3837,32,0,0.0039970000000000006,1892.1520709991455,,system|tools|role|documents|history|query
+44,anthropic/claude-haiku-4.5,openrouter,True,3496,32,0,0.003656,1508.8300704956055,,system|tools|role|query
+45,anthropic/claude-haiku-4.5,openrouter,True,3519,32,0,0.003679,1995.896816253662,,system|tools|role|query
+46,anthropic/claude-haiku-4.5,openrouter,True,3786,32,0,0.003946,1832.0329189300537,,system|tools|role|documents|history|query
+47,anthropic/claude-haiku-4.5,openrouter,True,3972,32,0,0.004132,2242.997169494629,,system|tools|role|context|documents|query
+48,anthropic/claude-haiku-4.5,openrouter,True,3543,32,0,0.003703,1364.4180297851562,,system|tools|role|history|query
+49,anthropic/claude-haiku-4.5,openrouter,True,3674,32,0,0.003834,1769.7298526763916,,system|tools|role|context|query
+0,anthropic/claude-haiku-4.5,openrouter,False,3520,32,0,0.00368,6644.501209259033,,query|role|tools|system
+1,anthropic/claude-haiku-4.5,openrouter,False,3727,32,0,0.003887,1887.397050857544,,query|documents|role|tools|system
+2,anthropic/claude-haiku-4.5,openrouter,False,3680,32,0,0.00384,2638.174295425415,,query|history|context|role|tools|system
+3,anthropic/claude-haiku-4.5,openrouter,False,3404,0,0,0.0,0.0,Remote end closed connection without response,query|history|context|role|tools|system
+4,anthropic/claude-haiku-4.5,openrouter,False,3689,32,0,0.003849,24636.287927627563,,query|documents|role|tools|system
+5,anthropic/claude-haiku-4.5,openrouter,False,3828,32,0,0.003988,4479.93803024292,,query|documents|context|role|tools|system
+6,anthropic/claude-haiku-4.5,openrouter,False,3993,32,0,0.0041530000000000004,1771.2998390197754,,query|documents|context|role|tools|system
+7,anthropic/claude-haiku-4.5,openrouter,False,3498,32,0,0.003658,1747.7812767028809,,query|role|tools|system
+8,anthropic/claude-haiku-4.5,openrouter,False,3809,32,0,0.003969,3571.608066558838,,query|history|documents|context|role|tools|system
+9,anthropic/claude-haiku-4.5,openrouter,False,3900,32,0,0.004059999999999999,2122.2336292266846,,query|history|documents|role|tools|system
+10,anthropic/claude-haiku-4.5,openrouter,False,3561,32,0,0.003721,2381.7479610443115,,query|context|role|tools|system
+11,anthropic/claude-haiku-4.5,openrouter,False,3762,32,0,0.003922,2556.0379028320312,,query|history|context|role|tools|system
+12,anthropic/claude-haiku-4.5,openrouter,False,4009,32,0,0.004169000000000001,2200.305938720703,,query|history|documents|context|role|tools|system
+13,anthropic/claude-haiku-4.5,openrouter,False,3873,32,0,0.004033,2634.1071128845215,,query|history|documents|context|role|tools|system
+14,anthropic/claude-haiku-4.5,openrouter,False,3563,0,0,0.0,0.0,Remote end closed connection without response,query|documents|context|role|tools|system
+15,anthropic/claude-haiku-4.5,openrouter,False,3860,32,0,0.00402,2152.975082397461,,query|history|documents|context|role|tools|system
+16,anthropic/claude-haiku-4.5,openrouter,False,3863,32,0,0.0040230000000000005,1829.4227123260498,,query|documents|context|role|tools|system
+17,anthropic/claude-haiku-4.5,openrouter,False,3587,32,0,0.003747,1770.9813117980957,,query|history|role|tools|system
+18,anthropic/claude-haiku-4.5,openrouter,False,3513,0,0,0.0,0.0,Remote end closed connection without response,query|documents|context|role|tools|system
+19,anthropic/claude-haiku-4.5,openrouter,False,3905,32,0,0.004065,2457.8330516815186,,query|documents|context|role|tools|system
+20,anthropic/claude-haiku-4.5,openrouter,False,3972,32,0,0.004132,1792.2439575195312,,query|history|documents|context|role|tools|system
+21,anthropic/claude-haiku-4.5,openrouter,False,3445,0,0,0.0,0.0,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1082)>,query|history|documents|context|role|tools|system
+22,anthropic/claude-haiku-4.5,openrouter,False,3272,0,0,0.0,0.0,Remote end closed connection without response,query|history|documents|role|tools|system
+23,anthropic/claude-haiku-4.5,openrouter,False,3707,32,0,0.0038669999999999998,3553.7638664245605,,query|context|role|tools|system
+24,anthropic/claude-haiku-4.5,openrouter,False,3718,32,0,0.003878,1909.5070362091064,,query|context|role|tools|system
+25,anthropic/claude-haiku-4.5,openrouter,False,3735,32,0,0.003895,1981.2841415405273,,query|history|documents|role|tools|system
+26,anthropic/claude-haiku-4.5,openrouter,False,3780,32,0,0.00394,1920.8500385284424,,query|history|documents|context|role|tools|system
+27,anthropic/claude-haiku-4.5,openrouter,False,3990,32,0,0.004149999999999999,2198.5552310943604,,query|documents|context|role|tools|system
+28,anthropic/claude-haiku-4.5,openrouter,False,3652,32,0,0.003812,1535.107135772705,,query|history|context|role|tools|system
+29,anthropic/claude-haiku-4.5,openrouter,False,3552,32,0,0.003712,1865.7450675964355,,query|history|role|tools|system
+30,anthropic/claude-haiku-4.5,openrouter,False,3841,32,0,0.004000999999999999,2105.73410987854,,query|history|documents|role|tools|system
+31,anthropic/claude-haiku-4.5,openrouter,False,3732,32,0,0.003892,2348.338842391968,,query|history|context|role|tools|system
+32,anthropic/claude-haiku-4.5,openrouter,False,3683,32,0,0.003843,6290.408134460449,,query|documents|context|role|tools|system
+33,anthropic/claude-haiku-4.5,openrouter,False,3549,32,0,0.003709,2222.9487895965576,,query|history|role|tools|system
+34,anthropic/claude-haiku-4.5,openrouter,False,3621,32,0,0.003781,3560.7969760894775,,query|context|role|tools|system
+35,anthropic/claude-haiku-4.5,openrouter,False,3744,32,0,0.003904,2251.284122467041,,query|history|context|role|tools|system
+36,anthropic/claude-haiku-4.5,openrouter,False,3698,32,0,0.003858,1865.351915359497,,query|history|documents|role|tools|system
+37,anthropic/claude-haiku-4.5,openrouter,False,3563,32,0,0.003723,2292.572021484375,,query|documents|role|tools|system
+38,anthropic/claude-haiku-4.5,openrouter,False,3384,0,0,0.0,0.0,Remote end closed connection without response,query|history|documents|role|tools|system
+39,anthropic/claude-haiku-4.5,openrouter,False,3294,0,0,0.0,0.0,Remote end closed connection without response,query|documents|context|role|tools|system
+40,anthropic/claude-haiku-4.5,openrouter,False,3533,32,0,0.003693,2132.5130462646484,,query|history|role|tools|system
+41,anthropic/claude-haiku-4.5,openrouter,False,3665,32,0,0.003825,1890.0909423828125,,query|history|context|role|tools|system
+42,anthropic/claude-haiku-4.5,openrouter,False,3258,0,0,0.0,0.0,Remote end closed connection without response,query|context|role|tools|system
+43,anthropic/claude-haiku-4.5,openrouter,False,3838,32,0,0.003998,3031.400203704834,,query|history|documents|role|tools|system
+44,anthropic/claude-haiku-4.5,openrouter,False,3497,32,0,0.003657,2245.522975921631,,query|role|tools|system
+45,anthropic/claude-haiku-4.5,openrouter,False,3520,32,0,0.00368,3091.998338699341,,query|role|tools|system
+46,anthropic/claude-haiku-4.5,openrouter,False,3787,32,0,0.003947,2365.5498027801514,,query|history|documents|role|tools|system
+47,anthropic/claude-haiku-4.5,openrouter,False,3973,32,0,0.0041329999999999995,2124.7308254241943,,query|documents|context|role|tools|system
+48,anthropic/claude-haiku-4.5,openrouter,False,3544,32,0,0.003704,1694.4832801818848,,query|history|role|tools|system
+49,anthropic/claude-haiku-4.5,openrouter,False,3675,32,0,0.003835,12097.190856933594,,query|context|role|tools|system
