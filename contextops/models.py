@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 # Canonical section order. Higher stability = higher position.
 # Each section has a "stability" score from 0 (variable) to 1 (stable across calls).
 # The reordering logic uses this to maximize cache hits.
-Section = Literal["system", "tools", "role", "context", "history", "documents", "query"]
+Section = Literal["system", "tools", "role", "context", "documents", "history", "query"]
 
 
 class HistoryMessage(BaseModel):

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal, cast
 
 import click
 from rich.console import Console
@@ -26,6 +27,7 @@ from contextops.eval import compare as compare_prompts, evaluate_ab
 from contextops.judge import list_metrics
 from contextops.logger import DEFAULT_DB_PATH, Logger
 from contextops.models import Prompt
+from contextops.optimizer import DEFAULT_CONFIG
 
 console = Console()
 
@@ -82,7 +84,7 @@ def optimize(
             history=history,
             query=query,
             model=model,
-            goal=goal,
+            goal=cast(Literal["cache_friendly", "balanced", "quality"], goal),
         )
 
     from contextops.optimizer import optimize as run_optimize
@@ -108,7 +110,7 @@ def _render_optimization(result) -> None:
     table.add_row("Tokens", str(result.original_tokens), str(result.optimized_tokens))
     table.add_row(
         "Cache hit rate (est)",
-        f"{_baseline_hit(result.model):.1%}",
+        f"{DEFAULT_CONFIG.baseline_hit_rate:.1%}",
         f"{result.estimated_cache_hit_rate:.1%}",
     )
     table.add_row(
@@ -122,10 +124,6 @@ def _render_optimization(result) -> None:
         console.print("\n[bold]Notes:[/bold]")
         for note in result.notes:
             console.print(f"  • {note}")
-
-
-def _baseline_hit(model: str) -> float:
-    return 0.05
 
 
 @main.command()
@@ -221,6 +219,8 @@ def compare(baseline_json: str, optimized_json: str | None) -> None:
               help="Which stub run_fn to use for the demo")
 @click.option("--output", "output_path", type=click.Path(), default=None,
               help="Write full JSON report here")
+@click.option("--parallel", "max_workers", default=1, type=int,
+              help="Max concurrent judge calls (1 = serial)")
 def eval(
     baseline_json: str,
     optimized_json: str | None,
@@ -230,6 +230,7 @@ def eval(
     echo: bool,
     run_fn_choice: str,
     output_path: str | None,
+    max_workers: int,
 ) -> None:
     """Run an A/B eval: two prompts over a dataset, judged by LLM-as-judge."""
     baseline = Prompt(**json.loads(Path(baseline_json).read_text()))
@@ -253,11 +254,9 @@ def eval(
 
     run_fn = _pick_run_fn(run_fn_choice, dataset)
 
-    progress_state = {"current": ""}
-
-    def _on_progress(i: int, n: int, phase: str) -> None:
-        progress_state["current"] = phase
-
+    # Total units = (respond + judge-per-metric) for each of baseline/optimized.
+    # `evaluate_ab` reports a single monotonically increasing count across both
+    # sides and both phases — see its `progress_offset`/`progress_total` wiring.
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -267,10 +266,12 @@ def eval(
         console=console,
         transient=True,
     ) as progress:
-        task = progress.add_task("Running A/B eval...", total=len(dataset) * 2 * len(metric_list))
+        task = progress.add_task(
+            "Running A/B eval...", total=len(dataset) * (1 + len(metric_list)) * 2
+        )
 
         def _progress_wrapper(i: int, n: int, phase: str) -> None:
-            progress.update(task, completed=i, description=f"[cyan]{phase}[/cyan]")
+            progress.update(task, completed=i, total=n, description=f"[cyan]{phase}[/cyan]")
 
         report = evaluate_ab(
             baseline,
@@ -281,6 +282,7 @@ def eval(
             judge=judge,
             judge_model=judge_model,
             on_progress=_progress_wrapper,
+            max_workers=max_workers,
         )
 
     _render_eval_report(report)
@@ -344,7 +346,7 @@ def _render_eval_report(report: dict) -> None:
     quality_table.add_column("Baseline", justify="right")
     quality_table.add_column("Optimized", justify="right")
     quality_table.add_column("Δ", justify="right")
-    quality_table.add_column("N", justify="right")
+    quality_table.add_column("N (base/opt)", justify="right")
 
     for metric, d in report["quality"].items():
         b = f"{d['baseline_mean']:.3f}" if d.get("baseline_mean") is not None else "-"
@@ -355,7 +357,8 @@ def _render_eval_report(report: dict) -> None:
             delta_str = f"[green]{delta_str}[/green]"
         elif delta < -0.05:
             delta_str = f"[red]{delta_str}[/red]"
-        quality_table.add_row(metric, b, o, delta_str, str(d.get("n", 0)))
+        n_str = f"{d.get('n_baseline', 0)}/{d.get('n_optimized', 0)}"
+        quality_table.add_row(metric, b, o, delta_str, n_str)
     console.print(quality_table)
 
 

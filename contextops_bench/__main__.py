@@ -21,6 +21,7 @@ from contextops_bench.runner import (
     save_csv,
     summarize,
 )
+from contextops_bench.breakdown import save_breakdown_csv
 
 
 # Providers that actually charge for prompt cache. On these, the cache key
@@ -212,6 +213,10 @@ def _execute(args, *, label: str, n: int, include_edge_cases: bool = False) -> i
     (out_dir / f"{label}.summary.json").write_text(
         __import__("json").dumps(summary, indent=2)
     )
+    # Per-prompt breakdown CSV (v0.3.3, item 2). Always write — even when
+    # `breakdown` is empty, the file exists with just the header so downstream
+    # tools have a stable contract.
+    save_breakdown_csv(summary.get("breakdown", []), out_dir / f"{label}.breakdown.csv")
     return 0
 
 

@@ -7,16 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`contextops.optimizer.estimate_cache_hit` is now position-aware**: bonuses only accrue for the longest stable-ordered prefix. Previously the estimator summed bonuses for every stable section regardless of position, overstating hit rate for prompts with broken render orders. Uses `_bench_render_order` when present.
+- **`contextops.report.a_b_compare` now reports both baseline and optimized counts** (`n_baseline` / `n_optimized`) while keeping `n` as the baseline count for backwards compatibility.
+- **Removed redundant token-counting work in `optimize()`**: section content is memoized across original and reordered passes.
+- **Collapsed dead branch in `contextops.eval._render_prompt`**: `history` is rendered by `Prompt.sections()`, so it no longer needs a special-cased append path.
+- **CLI progress bar totals are now correct and monotonic**: `evaluate_ab` reports a single increasing progress count across both arms and both phases, fixing the previous reset/total-mismatch bug.
+- **Deduplicated the baseline cache-hit constant** in the CLI; it now reads from the centralized optimizer config instead of redefining a local value.
+
 ### Added
-- **Per-prompt breakdown** (`contextops.breakdown`, new module `contextops_bench/breakdown.py`): top-N prompts by `|Δ cost|` rendered as a Rich table at the end of the bench summary, and also saved to `bench/results/<label>.breakdown.csv`. Columns: `prompt_id, model, prompt_tokens, baseline_cost, optimized_cost, delta_cost, delta_pct, baseline_cache_hit, optimized_cache_hit`. Diagnoses which prompt shapes the reorder helps vs hurts.
-- **Bootstrap CI on A/B cost delta** (new module `contextops_bench/stats.py`): new keys in `.summary.json` — `cost_delta_ci_low_usd`, `cost_delta_ci_high_usd`, `effect_size_pct` — rendered as `[low, high] @ 95%, effect: X.X%`. `n_boot=10_000` default (auto-scales to 1k when N<20). Deterministic via seed. Stdlib only — no scipy. Effect-size center is **median** of paired Δ cost, robust to skewed cost distributions.
-- **`bench replay <csv>` subcommand** (new module `contextops_bench/replay.py`): re-runs the LLM call only, reusing the prompt structures saved in the source CSV. Preserves pair ordering so the cost-delta CI is directly comparable across replays. Useful for cross-provider comparison (Anthropic vs OpenAI vs Gemini on the same prompt set). Writes `<label>.replay.csv` and `<label>.replay.summary.json`. **No cost cap** — user responsibility, called out in README and CLI help text.
+- **Retry/timeout logic in `LiteLLMJudge.complete`** with exponential backoff, handling transient provider failures gracefully.
+- **Concurrent judge scoring in `score_many`** via `ThreadPoolExecutor`; output order is preserved by submission order and progress callbacks are thread-safe and monotonic. Exposed through the `contextops eval --parallel N` CLI flag.
+- **`lru_cache` on `_get_encoding`** to avoid repeatedly loading tiktoken BPE rank files.
+- **Dataset validation warnings** in `contextops.dataset.load` for empty queries, empty expected answers, duplicate queries, and entirely empty datasets.
+- **SQLite WAL mode + connection timeout** in `contextops.logger.Logger` to eliminate "database is locked" errors under concurrent writes.
+- **New module `contextops.pricing`** centralizing per-model token prices, default price, and cache-read discount.
+- **`contextops.optimizer.OptimizerConfig`** injectable configuration object for stability ordering, hit-rate bounds, section bonuses, cache-read discount, and pricing. `optimize()`, `reorder()`, and `estimate_cache_hit()` all accept an optional `config` argument while preserving existing defaults.
 
 ### Changed
-- `contextops_bench.runner.summarize()` output schema extended additively; existing keys unchanged.
+- **`Section` literal ordering in `contextops.models`** now matches the canonical stability order used by the optimizer (`documents` before `history`).
+- `contextops.cli.optimize` table now reads the baseline hit-rate from `DEFAULT_CONFIG` rather than a private module constant.
 
 ### Tests
-- ~10 new tests across `tests/test_bench_stats.py`, `tests/test_bench_breakdown.py`, `tests/test_bench_replay.py`. Target: ≥63 passing (was 53).
+- Added regression tests for position-aware hit-rate estimation, A/B compare counts, concurrent `score_many` order/progress monotonicity, dataset validation warnings, SQLite WAL concurrency, `LiteLLMJudge` retry behavior, injectable `OptimizerConfig`, and aligned `Section` literal ordering.
+- Full suite: **91 passing**.
 
 See `docs/PLAN_v0.3.3.md` for the full plan, decisions, and acceptance criteria.
 

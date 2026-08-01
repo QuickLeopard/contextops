@@ -9,6 +9,7 @@ The Protocol lives in judge.py.
 
 from __future__ import annotations
 
+import time
 from typing import Callable
 
 from contextops.judge import JudgeClient
@@ -36,9 +37,13 @@ class CallableJudge:
 
 
 class LiteLLMJudge:
-    """Real judge using litellm. Optional — pip install litellm."""
+    """Real judge using litellm. Optional — pip install litellm.
 
-    def __init__(self):
+    Retries transient failures (timeouts, rate limits, provider hiccups)
+    with exponential backoff so a single bad call doesn't abort a whole eval.
+    """
+
+    def __init__(self, *, max_retries: int = 3, timeout: float = 30.0, backoff_base: float = 1.0):
         try:
             import litellm  # type: ignore
 
@@ -47,14 +52,28 @@ class LiteLLMJudge:
             raise RuntimeError(
                 "litellm not installed. Run: pip install 'contextops[integrations]'"
             ) from e
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.backoff_base = backoff_base
 
     def complete(self, *, model: str, messages: list[dict], temperature: float = 0.0) -> str:
-        resp = self._litellm.completion(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-        )
-        return resp.choices[0].message.content or ""
+        last_exc: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                resp = self._litellm.completion(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    timeout=self.timeout,
+                )
+                return resp.choices[0].message.content or ""
+            except Exception as e:  # noqa: BLE001 - any provider/network error is retryable
+                last_exc = e
+                if attempt < self.max_retries:
+                    time.sleep(self.backoff_base * (2**attempt))
+        raise RuntimeError(
+            f"LiteLLMJudge.complete failed after {self.max_retries + 1} attempt(s): {last_exc}"
+        ) from last_exc
 
 
 def default_judge() -> JudgeClient:

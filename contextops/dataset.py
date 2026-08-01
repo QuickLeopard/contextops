@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import json
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -31,12 +32,55 @@ def load(path: str | Path) -> list[DatasetItem]:
 
     suffix = p.suffix.lower()
     if suffix == ".jsonl":
-        return _load_jsonl(p)
-    if suffix == ".json":
-        return _load_json(p)
-    if suffix == ".csv":
-        return _load_csv(p)
-    raise ValueError(f"Unsupported format: {suffix}. Use .json, .jsonl, or .csv.")
+        items = _load_jsonl(p)
+    elif suffix == ".json":
+        items = _load_json(p)
+    elif suffix == ".csv":
+        items = _load_csv(p)
+    else:
+        raise ValueError(f"Unsupported format: {suffix}. Use .json, .jsonl, or .csv.")
+
+    _validate(items, source=str(p))
+    return items
+
+
+def _validate(items: list[DatasetItem], *, source: str) -> None:
+    """Warn (non-fatal) about dataset rows likely to skew eval results.
+
+    Empty queries, empty expected answers, and exact-duplicate queries don't
+    make a dataset unusable, but they silently distort judge scores and
+    cost/latency estimates — worth surfacing rather than failing outright.
+    """
+    if not items:
+        warnings.warn(f"Dataset '{source}' is empty — eval will score 0 rows.", stacklevel=2)
+        return
+
+    n_empty_query = sum(1 for it in items if not it.query.strip())
+    if n_empty_query:
+        warnings.warn(
+            f"Dataset '{source}': {n_empty_query}/{len(items)} row(s) have an empty query.",
+            stacklevel=2,
+        )
+
+    n_empty_expected = sum(1 for it in items if not it.expected.strip())
+    if n_empty_expected:
+        warnings.warn(
+            f"Dataset '{source}': {n_empty_expected}/{len(items)} row(s) have no expected "
+            "answer — 'completeness' scoring will be unreliable for these rows.",
+            stacklevel=2,
+        )
+
+    seen: dict[str, int] = {}
+    for it in items:
+        if it.query.strip():
+            seen[it.query] = seen.get(it.query, 0) + 1
+    n_dupes = sum(1 for count in seen.values() if count > 1)
+    if n_dupes:
+        warnings.warn(
+            f"Dataset '{source}': {n_dupes} duplicate query value(s) found — "
+            "results may double-count some rows.",
+            stacklevel=2,
+        )
 
 
 def _load_jsonl(p: Path) -> list[DatasetItem]:

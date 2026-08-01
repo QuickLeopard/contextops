@@ -71,10 +71,16 @@ def a_b_compare(
     for metric in set(base) | set(opt):
         b = base.get(metric, {})
         o = opt.get(metric, {})
+        n_baseline = b.get("count", 0)
+        n_optimized = o.get("count", 0)
         deltas[metric] = {
             "baseline_mean": b.get("mean"),
             "optimized_mean": o.get("mean"),
             "delta": round((o.get("mean", 0) - b.get("mean", 0)), 3),
-            "n": b.get("count", 0),
+            "n_baseline": n_baseline,
+            "n_optimized": n_optimized,
+            # Kept for backwards compatibility with v0.2 consumers that read
+            # a single "n" — equals the baseline count as before.
+            "n": n_baseline,
         }
     return deltas

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from contextops.clients import EchoJudge
 from contextops.dataset import DatasetItem, load as load_dataset
 from contextops.eval import compare, evaluate, evaluate_ab
@@ -84,6 +86,48 @@ def test_score_many_aggregates_correctly():
     assert metrics_seen == {"relevance", "completeness"}
 
 
+def test_score_many_concurrent_preserves_order_and_progress():
+    """Regression test: max_workers > 1 must preserve output ordering by
+    (response, metric) submission order — not completion order — and
+    on_progress must remain a strictly increasing, gap-free count even
+    though units complete out of submission order under concurrency.
+    """
+    import re
+    import time
+
+    def fake_complete(*, model, messages, temperature=0.0):
+        content = messages[-1]["content"]
+        m = re.search(r"q(\d+)", content)
+        idx = int(m.group(1)) if m else 0
+        # Sleep inversely to submission order so completion is shuffled.
+        time.sleep(0.03 * (4 - idx))
+        return f'{{"score": 0.5, "reason": "q{idx}"}}'
+
+    judge = CallableJudge(fake_complete)
+    progress_events: list[tuple[int, int]] = []
+
+    def _capture(i, n, m):
+        progress_events.append((i, n))
+
+    scores = score_many(
+        responses=["r0", "r1", "r2", "r3"],
+        metrics=["relevance"],
+        judge=judge,
+        queries=["q0", "q1", "q2", "q3"],
+        on_progress=_capture,
+        max_workers=4,
+    )
+
+    # Output order matches submission order, regardless of completion order.
+    assert [s["index"] for s in scores] == [0, 1, 2, 3]
+
+    completed = [c for c, _ in progress_events]
+    assert completed == sorted(completed)
+    assert len(completed) == len(set(completed))
+    assert completed[-1] == 4
+    assert {n for _, n in progress_events} == {4}
+
+
 def test_score_one_with_callable_judge():
     def fake_judge(*, model, messages, temperature=0.0):
         return '{"score": 0.42, "reason": "custom"}'
@@ -127,6 +171,17 @@ def test_a_b_compare():
     optimized = [{"metric": "relevance", "score": 0.7}]
     deltas = a_b_compare(baseline, optimized)
     assert deltas["relevance"]["delta"] == 0.2
+
+
+def test_a_b_compare_reports_both_counts():
+    """Regression test: a_b_compare must not silently drop the optimized N."""
+    baseline = [{"metric": "relevance", "score": 0.5}] * 3
+    optimized = [{"metric": "relevance", "score": 0.7}] * 5
+    deltas = a_b_compare(baseline, optimized)
+    assert deltas["relevance"]["n_baseline"] == 3
+    assert deltas["relevance"]["n_optimized"] == 5
+    # "n" kept for backwards compatibility, equals baseline count.
+    assert deltas["relevance"]["n"] == 3
 
 
 def test_evaluate_runs_pipeline():
@@ -177,6 +232,46 @@ def test_evaluate_ab_returns_full_report():
     assert report["quality"]["relevance"]["delta"] == 0.0  # both got 0.9
 
 
+def test_evaluate_ab_progress_is_monotonic_and_reaches_total():
+    """Regression test: the CLI progress bar bug — on_progress must emit a
+    strictly increasing `completed` count (never resetting mid-run) that
+    ends exactly at the reported `total` for both baseline and optimized
+    phases combined.
+    """
+    baseline = Prompt(system="sys", documents="ctx", query="", model="gpt-4o-mini")
+    optimized = Prompt(system="sys", documents="ctx", query="", model="gpt-4o-mini")
+    judge = EchoJudge(score=0.9)
+    metrics = ["relevance", "completeness"]
+
+    seen: list[tuple[int, int]] = []
+
+    def _capture(i: int, n: int, phase: str) -> None:
+        seen.append((i, n))
+
+    evaluate_ab(
+        baseline,
+        optimized,
+        run_fn=_perfect_run_fn,
+        dataset=SAMPLE_DATASET,
+        metrics=metrics,
+        judge=judge,
+        on_progress=_capture,
+    )
+
+    completed_values = [c for c, _ in seen]
+    totals = {n for _, n in seen}
+
+    # `total` never changes mid-run.
+    assert len(totals) == 1
+    expected_total = len(SAMPLE_DATASET) * (1 + len(metrics)) * 2
+    assert totals == {expected_total}
+
+    # `completed` is strictly increasing and finishes exactly at the total.
+    assert completed_values == sorted(completed_values)
+    assert len(completed_values) == len(set(completed_values))
+    assert completed_values[-1] == expected_total
+
+
 def test_load_dataset_jsonl(tmp_path):
     from contextops.dataset import to_jsonl
     p = tmp_path / "data.jsonl"
@@ -184,6 +279,31 @@ def test_load_dataset_jsonl(tmp_path):
     loaded = load_dataset(p)
     assert len(loaded) == 3
     assert loaded[0].query == "What is 2+2?"
+
+
+def test_load_dataset_warns_on_empty_query_and_duplicates(tmp_path):
+    import json
+    p = tmp_path / "data.json"
+    p.write_text(json.dumps([
+        {"query": "same", "expected": "e1"},
+        {"query": "same", "expected": "e2"},
+        {"query": "", "expected": "e3"},
+    ]))
+    with pytest.warns(UserWarning) as record:
+        loaded = load_dataset(p)
+    assert len(loaded) == 3
+    messages = [str(w.message) for w in record]
+    assert any("empty query" in m for m in messages)
+    assert any("duplicate query" in m for m in messages)
+
+
+def test_load_dataset_empty_warns(tmp_path):
+    import json
+    p = tmp_path / "empty.json"
+    p.write_text(json.dumps([]))
+    with pytest.warns(UserWarning, match="is empty"):
+        loaded = load_dataset(p)
+    assert loaded == []
 
 
 def test_load_dataset_json_list():

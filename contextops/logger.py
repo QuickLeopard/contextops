@@ -22,8 +22,14 @@ class Logger:
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        # `timeout` makes SQLite retry (instead of immediately raising
+        # "database is locked") when another connection briefly holds the
+        # write lock. WAL mode lets readers (stats/recent) proceed while a
+        # write is in flight — important for `install_callback`, which may
+        # log concurrently from multiple in-flight requests in a real app.
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
     def _init_schema(self) -> None:
@@ -76,7 +82,8 @@ class Logger:
                     json.dumps(entry.metadata),
                 ),
             )
-            return cur.lastrowid
+            row_id = cur.lastrowid
+            return row_id if row_id is not None else -1
 
     def stats(self, limit: int = 100) -> dict:
         """Return aggregate stats over recent calls."""

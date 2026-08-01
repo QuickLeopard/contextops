@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional, Protocol
 
 
@@ -167,30 +169,64 @@ def score_many(
     queries: Optional[list[str]] = None,
     expecteds: Optional[list[str]] = None,
     on_progress=None,
+    max_workers: int = 1,
 ) -> list[dict]:
     """Score many responses on many metrics.
 
-    Returns a list of dicts:
+    Returns a list of dicts, always ordered by (response index, metric
+    index) — i.e. the same order regardless of `max_workers`:
         [{"index": 0, "metric": "faithfulness", "score": 0.9, "reason": "..."}, ...]
+
+    `max_workers > 1` fans the (response, metric) units out across a thread
+    pool, since judge calls are I/O-bound network requests. `on_progress` is
+    always a monotonically increasing "N of total units completed" count —
+    guarded by a lock under concurrency — safe to drive a progress bar even
+    though units may complete out of submission order.
     """
     contexts = contexts or [""] * len(responses)
     queries = queries or [""] * len(responses)
     expecteds = expecteds or [""] * len(responses)
     on_progress = on_progress or (lambda i, n, m: None)
 
-    out: list[dict] = []
-    for i, response in enumerate(responses):
-        for metric in metrics:
-            result = score_one(
-                metric,
-                response,
-                judge=judge,
-                model=model,
-                context=contexts[i] if i < len(contexts) else "",
-                query=queries[i] if i < len(queries) else "",
-                expected=expecteds[i] if i < len(expecteds) else "",
-            )
-            result["index"] = i
-            out.append(result)
-            on_progress(i + 1, len(responses), metric)
-    return out
+    n_metrics = len(metrics)
+    total_units = len(responses) * n_metrics
+    units = [(i, j) for i in range(len(responses)) for j in range(n_metrics)]
+
+    def _run_unit(i: int, j: int) -> dict:
+        metric = metrics[j]
+        result = score_one(
+            metric,
+            responses[i],
+            judge=judge,
+            model=model,
+            context=contexts[i] if i < len(contexts) else "",
+            query=queries[i] if i < len(queries) else "",
+            expected=expecteds[i] if i < len(expecteds) else "",
+        )
+        result["index"] = i
+        return result
+
+    out: list[Optional[dict]] = [None] * total_units
+
+    if max_workers <= 1 or total_units <= 1:
+        completed = 0
+        for pos, (i, j) in enumerate(units):
+            out[pos] = _run_unit(i, j)
+            completed += 1
+            on_progress(completed, total_units, metrics[j])
+    else:
+        lock = threading.Lock()
+        completed = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(_run_unit, i, j): (pos, j) for pos, (i, j) in enumerate(units)
+            }
+            for fut in as_completed(futures):
+                pos, j = futures[fut]
+                out[pos] = fut.result()
+                with lock:
+                    completed += 1
+                    local_completed = completed
+                on_progress(local_completed, total_units, metrics[j])
+
+    return out  # type: ignore[return-value]

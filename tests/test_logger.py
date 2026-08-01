@@ -1,6 +1,7 @@
 """Tests for the local SQLite logger."""
 
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -56,3 +57,30 @@ def test_by_model_aggregation():
         models = {row["model"]: row["n"] for row in s["by_model"]}
         assert models["gpt-4o"] == 2
         assert models["claude-haiku-4.5"] == 3
+
+
+def test_wal_mode_enabled():
+    """Regression test: the DB must use WAL journal mode so concurrent
+    readers (stats/recent) don't block on an in-flight writer."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "test.db"
+        logger = Logger(db)
+        with logger._connect() as conn:
+            mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        assert mode.lower() == "wal"
+
+
+def test_concurrent_writes_do_not_raise():
+    """Regression test: many threads logging concurrently must not hit
+    'database is locked' errors now that WAL + a busy timeout are set."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "test.db"
+        logger = Logger(db)
+
+        def _write(_i):
+            logger.log(_make_entry())
+
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            list(pool.map(_write, range(50)))
+
+        assert logger.stats(limit=100)["total_calls"] == 50

@@ -13,6 +13,7 @@ from contextops.models import Prompt
 from contextops.optimizer import reorder, count_tokens
 from contextops_bench.clients import BenchResult, CompletionResponse
 from contextops_bench.stats import bootstrap_ci, effect_size_pct
+from contextops_bench.breakdown import per_prompt_breakdown, render_breakdown_table
 
 
 # Sections treated as "stable" content (sent in the system message for
@@ -283,6 +284,7 @@ def summarize(
     results: list[BenchResult],
     *,
     exclude_ids: set[int] | None = None,
+    breakdown_top_n: int = 10,
 ) -> dict:
     """Compute summary stats. Group by `use_optimized`.
 
@@ -347,6 +349,10 @@ def summarize(
             summary["delta"]["cost_delta_ci_low_usd"] = ci_low
             summary["delta"]["cost_delta_ci_high_usd"] = ci_high
             summary["delta"]["effect_size_pct"] = effect_size_pct(opt_costs, base_costs)
+        # Per-prompt breakdown (v0.3.3, item 2): top-N rows by |delta cost|.
+        summary["breakdown"] = per_prompt_breakdown(
+            optimized, baseline, top_n=breakdown_top_n
+        )
 
     return summary
 
@@ -434,4 +440,8 @@ def render_summary(summary: dict, label: str) -> str:
                 f"  effect size:      {d['effect_size_pct']:+.2f}% "
                 f"(median, optimized vs baseline)"
             )
+    # Per-prompt breakdown table (v0.3.3, item 2)
+    breakdown_lines = render_breakdown_table(summary.get("breakdown", []))
+    if breakdown_lines:
+        lines.append(breakdown_lines)
     return "\n".join(lines)
