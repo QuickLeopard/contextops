@@ -357,14 +357,17 @@ See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for the formal pass criteria.
 
 - ✅ **v0.1** — reorder, token count, SQLite logger, CLI
 - ✅ **v0.2** — LLM-as-judge eval + A/B testing + dataset loaders
-- ✅ **v0.3** — realistic-preset cache-key regression fix + direct providers (Anthropic / Zen / OpenAI / Gemini) + CI bench regression gate + safety-net auto-default on cache-bearing providers. See [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md).
+- ✅ **v0.3** — realistic-preset cache-key regression fix + direct providers (Anthropic / Zen / OpenAI / Gemini) + CI bench regression gate + safety-net auto-default on cache-bearing providers + deterministic bench quality gates (confidence scoring, error classification, run timestamps). See [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md).
 - 🔜 **v0.4** — RAG curator (multi-signal retrieval + strict threshold)
 - 🔜 **v1.0** — Access-aware context + audit trail (on-prem / enterprise)
+
+See [`ROADMAP.md`](ROADMAP.md) for a detailed, implementation-ready breakdown of every upcoming track (RAG curator, access-aware context, bench/dashboard maturity, new providers/metrics) — written to be actionable for a junior engineer picking up any item.
 
 ---
 
 ## 📚 Documentation
 
+- [`ROADMAP.md`](ROADMAP.md) — detailed, implementation-ready plan for upcoming tracks
 - [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) — formal pass/fail criteria
 - [`CHANGELOG.md`](CHANGELOG.md) — version history
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute
