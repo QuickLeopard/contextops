@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from contextops.clients import default_judge
+from contextops.curator import DocumentChunk, context_precision
 from contextops.dataset import DatasetItem
 from contextops.judge import JudgeClient, score_many
 from contextops.models import OptimizationResult, Prompt
@@ -75,6 +76,7 @@ def evaluate(
     progress_offset: int = 0,
     progress_total: Optional[int] = None,
     max_workers: int = 1,
+    curated_chunks: Optional[list[list[DocumentChunk]]] = None,
 ) -> dict:
     """Score a single prompt's responses on a dataset.
 
@@ -91,6 +93,16 @@ def evaluate(
     `max_workers > 1` fans judge calls out across a thread pool (see
     `judge.score_many`). The "respond" phase (`run_fn`) always stays serial
     since it's user-supplied and may not be thread-safe.
+
+    `curated_chunks`, if given, is one `list[DocumentChunk]` per dataset item
+    (the chunks kept by `contextops.curator.curate()` for that row). When
+    provided, a deterministic (no LLM call) "context_precision" score — see
+    `contextops.curator.context_precision` — is computed per item and folded
+    into `scores`/`aggregate` alongside the judge metrics. Because
+    `evaluate_ab`'s `a_b_compare` is metric-agnostic (it iterates whatever
+    metric names are present), this automatically produces a
+    "context_precision" row in the A/B quality-delta report too, with no
+    other changes needed.
 
     Returns the full report dict.
     """
@@ -134,6 +146,22 @@ def evaluate(
         on_progress=_on_judge_progress,
         max_workers=max_workers,
     )
+
+    if curated_chunks is not None:
+        if len(curated_chunks) != len(dataset):
+            raise ValueError(
+                f"curated_chunks must have one entry per dataset item "
+                f"({len(curated_chunks)} given, {len(dataset)} expected)"
+            )
+        scores = scores + [
+            {
+                "metric": "context_precision",
+                "score": context_precision(chunks, response)["precision"],
+                "index": i,
+            }
+            for i, (chunks, response) in enumerate(zip(curated_chunks, responses))
+        ]
+
     return {
         "prompt_sections": [s[0] for s in prompt.sections()],
         "metrics_requested": metrics,
@@ -167,6 +195,8 @@ def evaluate_ab(
     on_progress: Optional[Callable[[int, int, str], None]] = None,
     on_render: Optional[Callable[[Prompt, DatasetItem], str]] = None,
     max_workers: int = 1,
+    curated_chunks_baseline: Optional[list[list[DocumentChunk]]] = None,
+    curated_chunks_optimized: Optional[list[list[DocumentChunk]]] = None,
 ) -> dict:
     """Run two prompts over the same dataset, judge both, return A/B report.
 
@@ -175,6 +205,11 @@ def evaluate_ab(
     can fully control how dataset rows are injected into the prompt string.
     `max_workers > 1` fans judge calls out across a thread pool for both
     sides (see `judge.score_many`).
+
+    `curated_chunks_baseline`/`curated_chunks_optimized` are optional,
+    forwarded to `evaluate()`'s `curated_chunks` param for each side — see
+    that docstring. Pass both (baseline and optimized may have curated
+    different chunk sets) to get a "context_precision" row in `quality`.
     """
     metrics = metrics or ["relevance", "completeness", "faithfulness"]
     judge = judge or default_judge()
@@ -196,6 +231,7 @@ def evaluate_ab(
         progress_offset=0,
         progress_total=total,
         max_workers=max_workers,
+        curated_chunks=curated_chunks_baseline,
     )
     optimized_report = evaluate(
         optimized,
@@ -209,6 +245,7 @@ def evaluate_ab(
         progress_offset=side_total,
         progress_total=total,
         max_workers=max_workers,
+        curated_chunks=curated_chunks_optimized,
     )
 
     structural = compare(baseline, optimized)

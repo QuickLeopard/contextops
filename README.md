@@ -89,7 +89,8 @@ Estimated impact on a typical workload:
 | **A/B testing** | Run two prompts over a golden dataset, get structural + quality deltas. |
 | **Local SQLite logger** | Every LLM call goes to `~/.contextops/calls.db`. Zero cloud. |
 | **Dataset loaders** | `.json`, `.jsonl`, `.csv` golden QA datasets. |
-| **Rich CLI** | `optimize / stats / recent / compare / eval / reset` with tables and progress bars. |
+| **RAG Curator** | Multi-signal filtering (similarity + recency + trust + dedup) of retrieved chunks before they reach the optimizer. |
+| **Rich CLI** | `optimize / curate / stats / recent / compare / eval / reset` with tables and progress bars. |
 | **LiteLLM auto-log (opt)** | One line to auto-log every litellm call. `pip install "contextops[integrations]"` |
 | **OpenAI SDK patch (opt)** | One line to reorder + log every `openai.OpenAI().chat.completions.create` call. |
 | **Public benchmark dashboard** | Auto-generated HTML dashboard from `bench/results/*.summary.json`. |
@@ -219,7 +220,45 @@ print(report["structural"])   # tokens / cache / cost deltas
 print(report["quality"])      # per-metric judge deltas
 ```
 
-### 4. CLI
+### 4. RAG Curator — filter retrieved chunks before they hit the optimizer
+
+```python
+from contextops.curator import DocumentChunk, CuratorConfig, curate
+from contextops.models import Prompt
+
+# Your retriever's top-K results — you supply `similarity`, curator doesn't
+# force a specific vector DB or embedding model.
+chunks = [
+    DocumentChunk(text="Berlin's average July temp is 19°C.", similarity=0.91),
+    DocumentChunk(text="Unrelated: Berlin Wall fell in 1989.", similarity=0.42),
+    DocumentChunk(text="Berlin's average July temp is 19°C.", similarity=0.88),  # near-dup
+]
+
+config = CuratorConfig(threshold=0.6, dedup_threshold=0.9)
+result = curate(chunks, config)
+
+for chunk, reason in result.dropped:
+    print(f"dropped ({reason}): {chunk.text[:40]}")
+
+# Build a Prompt straight from curated chunks — `documents` is the join of
+# `result.kept`; optimize()/reorder() need zero changes.
+prompt = Prompt.from_chunks(chunks, config, query="What's the weather in Berlin?")
+```
+
+Deterministic "context precision" (did the LLM actually use what you kept?)
+is available without an extra LLM call, and plugs straight into `evaluate()`:
+
+```python
+from contextops.eval import evaluate
+
+report = evaluate(
+    prompt, run_fn=my_llm, dataset=dataset, metrics=["relevance"],
+    curated_chunks=[result.kept] * len(dataset),  # one list per dataset row
+)
+print(report["aggregate"]["context_precision"])
+```
+
+### 6. CLI
 
 ```bash
 # Optimize a prompt inline
@@ -231,6 +270,9 @@ contextops optimize \
 
 # Load a prompt from a JSON file
 contextops optimize --from-json my_prompt.json
+
+# Filter retrieved RAG chunks before optimizing
+contextops curate --chunks retrieved_chunks.json --threshold 0.6
 
 # Side-by-side comparison
 contextops compare baseline.json optimized.json
@@ -260,7 +302,7 @@ contextops recent --limit 50
 contextops reset
 ```
 
-### 5. Auto-log every LiteLLM call
+### 7. Auto-log every LiteLLM call
 
 ```python
 from contextops.integrations import install_callback
@@ -271,7 +313,7 @@ litellm.completion(model="gpt-4o", messages=[{"role": "user", "content": "hi"}])
 # → automatically logged to ~/.contextops/calls.db
 ```
 
-### 6. Patch the OpenAI SDK for automatic reorder + logging
+### 8. Patch the OpenAI SDK for automatic reorder + logging
 
 ```python
 import openai

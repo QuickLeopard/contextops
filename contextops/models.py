@@ -52,6 +52,19 @@ class Prompt(BaseModel):
     model: str = "gpt-4o"
     goal: Literal["cache_friendly", "balanced", "quality"] = "cache_friendly"
 
+    @classmethod
+    def from_chunks(cls, chunks: list[Any], config: Any = None, **fields: Any) -> "Prompt":
+        """Build a Prompt whose `documents` section is the curated join of
+        `chunks` (a list of `contextops.curator.DocumentChunk`). Runs
+        `contextops.curator.curate()` under the hood — see that module for
+        the filtering logic. Import is local to avoid a hard dependency /
+        circular import between models.py and curator.py.
+        """
+        from contextops.curator import build_documents
+
+        documents, _ = build_documents(chunks, config)
+        return cls(documents=documents, **fields)
+
     def sections(self) -> list[tuple[Section, str]]:
         """All non-empty sections as (name, content) tuples. Order doesn't matter here."""
         out: list[tuple[Section, str]] = []

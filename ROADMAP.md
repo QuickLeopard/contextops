@@ -15,14 +15,29 @@ blocking the others.
 
 | Track | Codename | Effort | Status |
 |---|---|---|---|
-| A | RAG Curator | Large (multi-week) | Not started — design only |
+| A | RAG Curator | Large (multi-week) | Core + eval integration shipped (v0.4) |
 | B | Access-Aware Context + Audit Trail | Large (multi-week) | Not started — design only |
 | C | Bench/Dashboard Maturity | Small (days) | Partially done — quality gates shipped, backfill pending |
 | D | New Providers/Metrics | Small (hours-days each) | `vllm`/`tgi` + `safety`/`format_compliance` shipped — more welcome |
 
 ---
 
-## Track A — RAG Curator (v0.4)
+## Track A — RAG Curator (v0.4) ✅ done
+
+**Implemented**: `contextops/curator.py` (`DocumentChunk`, `CuratorConfig`,
+`CurationResult`, `curate()`, `build_documents()`, `context_precision()`),
+`Prompt.from_chunks()` in `contextops/models.py`, the `contextops curate` CLI
+command, and optional `curated_chunks`/`curated_chunks_baseline`/
+`curated_chunks_optimized` params on `evaluate()`/`evaluate_ab()` in
+`contextops/eval.py` (the stretch goal below — done via a deterministic
+n-gram-overlap heuristic, not an LLM judge, to keep it free and fast). See
+`tests/test_curator.py` and the new tests in `tests/test_v02_eval.py`.
+
+One deviation from the original design below: recency uses a proper
+half-life formula (`0.5 ** (age_days / half_life_days)`, so a chunk aged
+exactly `half_life_days` scores 0.5), not the `exp(-age_days/half_life_days)`
+sketch — the exp version decays to `1/e` (~0.37) at that age, not `0.5`,
+which would have made `half_life_days` a misleading parameter name.
 
 ### The problem, in plain English
 
@@ -138,13 +153,13 @@ change to the reordering logic.
 
 ### Acceptance criteria (how you know it's done)
 
-- `curate()` is a pure function with no network calls, fully unit-testable.
+- `curate()` is a pure function with no network calls, fully unit-testable. ✅
 - Given a synthetic set of chunks with known similarity/recency/trust
-  values, `curate()` produces the expected kept/dropped split.
-- Dedup correctly drops near-identical chunks.
-- `contextops curate` CLI command works end-to-end on a sample JSON file.
+  values, `curate()` produces the expected kept/dropped split. ✅
+- Dedup correctly drops near-identical chunks. ✅
+- `contextops curate` CLI command works end-to-end on a sample JSON file. ✅
 - README gets a new "RAG Curator" section under "What's in the box" with
-  a runnable example, following the same style as the existing sections.
+  a runnable example, following the same style as the existing sections. ✅
 
 ---
 
@@ -459,7 +474,7 @@ used, since `expected` normally means something else for other metrics.
 2. Check `CONTRIBUTING.md` for the PR workflow, commit conventions, and
    how releases/`CHANGELOG.md` entries work.
 3. Run the full test suite before and after your change:
-   `pytest` (should stay green — currently 131 tests passing).
+   `pytest` (should stay green — currently 154 tests passing).
 4. Run `ruff check .` and `mypy contextops contextops_bench` before
    committing — this repo has zero tolerance for lint/type errors on
    touched files.

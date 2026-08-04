@@ -22,6 +22,7 @@ from rich.table import Table
 
 from contextops import __version__
 from contextops.clients import EchoJudge, LiteLLMJudge
+from contextops.curator import CuratorConfig, DocumentChunk, curate as run_curate
 from contextops.dataset import DatasetItem, load as load_dataset
 from contextops.eval import compare as compare_prompts, evaluate_ab
 from contextops.judge import list_metrics
@@ -199,6 +200,59 @@ def compare(baseline_json: str, optimized_json: str | None) -> None:
         optimized = Prompt(**json.loads(Path(optimized_json).read_text()))
     report = compare_prompts(baseline, optimized)
     console.print_json(data=report)
+
+
+@main.command()
+@click.option("--chunks", "chunks_json", type=click.Path(exists=True), required=True,
+              help='JSON file: list of {"text", "similarity", "updated_at"?, "trust_score"?}')
+@click.option("--weights", default="similarity=0.6,recency=0.2,trust=0.2",
+              help="Comma-separated key=value weights")
+@click.option("--threshold", default=0.6, type=float, help="Strict cutoff score")
+@click.option("--dedup-threshold", default=0.9, type=float,
+              help="Jaccard similarity above which chunks are considered duplicates")
+@click.option("--max-chunks", default=None, type=int, help="Optional hard cap on kept chunks")
+def curate(
+    chunks_json: str,
+    weights: str,
+    threshold: float,
+    dedup_threshold: float,
+    max_chunks: int | None,
+) -> None:
+    """Filter retrieved RAG chunks down to the ones worth paying tokens for."""
+    raw_chunks = json.loads(Path(chunks_json).read_text())
+    chunks = [DocumentChunk(**c) for c in raw_chunks]
+
+    parsed_weights: dict[str, float] = {}
+    for pair in weights.split(","):
+        key, _, value = pair.partition("=")
+        if not key or not value:
+            raise click.BadParameter(f"Invalid weights entry: {pair!r}. Use key=value.")
+        parsed_weights[key.strip()] = float(value)
+
+    config = CuratorConfig(
+        weights=parsed_weights,
+        threshold=threshold,
+        dedup_threshold=dedup_threshold,
+        max_chunks=max_chunks,
+    )
+    result = run_curate(chunks, config)
+
+    kept_table = Table(title=f"Kept ({len(result.kept)})", show_lines=False)
+    kept_table.add_column("Score", justify="right")
+    kept_table.add_column("Text")
+    for chunk, score in zip(result.kept, result.scores):
+        preview = chunk.text if len(chunk.text) <= 80 else chunk.text[:77] + "..."
+        kept_table.add_row(f"{score:.3f}", preview)
+    console.print(kept_table)
+
+    if result.dropped:
+        dropped_table = Table(title=f"Dropped ({len(result.dropped)})", show_lines=False)
+        dropped_table.add_column("Reason")
+        dropped_table.add_column("Text")
+        for chunk, reason in result.dropped:
+            preview = chunk.text if len(chunk.text) <= 80 else chunk.text[:77] + "..."
+            dropped_table.add_row(reason, preview)
+        console.print(dropped_table)
 
 
 @main.command(name="eval")

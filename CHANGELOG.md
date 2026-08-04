@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **One-line OpenAI SDK integration** (`contextops.integrations.openai.patch`) wraps an `openai.OpenAI` client so every `chat.completions.create` call is reordered for cache friendliness and optionally logged to the local SQLite database.
 - **`vllm` and `tgi` bench providers** (`contextops_bench/clients.py`): `VLLMClient` (OpenAI-compatible `/v1/chat/completions`) and `TGIClient` (native `/generate`, with `tiktoken`-based token estimation since TGI reports no usage). Both are local/self-hosted with `cost_usd=0.0` — used to measure token/latency savings, not cache/cost savings. Wired into `get_client()` and the `--provider` CLI choice.
 - **`safety` and `format_compliance` judge metrics** (`contextops/judge.py`): `safety` fails closed (defaults to `0.0`, not `0.5`, on unparseable judge output); `format_compliance` reuses the existing `expected` field to carry the required-format spec (e.g. `"valid JSON with keys: name, age"`) instead of an expected answer.
+- **RAG Curator** (`contextops/curator.py`): `DocumentChunk`/`CuratorConfig`/`CurationResult`/`curate()` — multi-signal (similarity + recency half-life decay + trust) scoring, bag-of-words Jaccard dedup, strict threshold, optional `max_chunks` cap, human-readable drop reasons. `Prompt.from_chunks()` builds a `Prompt` directly from curated chunks with zero changes to `optimize()`/`reorder()`. New `contextops curate` CLI command. Deterministic (no LLM call) `context_precision()` n-gram-overlap heuristic pluggable into `evaluate()`/`evaluate_ab()` via the new optional `curated_chunks`/`curated_chunks_baseline`/`curated_chunks_optimized` params — surfaces automatically as a `context_precision` row in A/B quality deltas since `a_b_compare` is metric-agnostic.
 
 ### Changed
 - **`Section` literal ordering in `contextops.models`** now matches the canonical stability order used by the optimizer (`documents` before `history`).
@@ -38,7 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added tests for the dashboard generator (filename parsing, dataset building, summary stats, end-to-end HTML generation).
 - Added tests for the OpenAI SDK integration (message conversion, reordering, logging, idempotent patch/unpatch).
 - Added tests for `VLLMClient`/`TGIClient` (factory dispatch, response parsing, message flattening, token estimation) and the `safety`/`format_compliance` judge metrics (fail-closed default, `expected`-as-format-spec convention).
-- Full suite: **131 passing**.
+- Added tests for the RAG Curator (`tests/test_curator.py`): scoring math, recency half-life decay, threshold edge cases (exactly-at, all-above, all-below), dedup (drops lower-scored duplicate, keeps distinct chunks), `max_chunks` cap, `Prompt.from_chunks()`, CLI end-to-end via `CliRunner`, and `context_precision()` (used/unused/mixed/empty cases); plus `evaluate()`/`evaluate_ab()` `curated_chunks` wiring tests in `tests/test_v02_eval.py`.
+- Full suite: **154 passing**.
 
 See `docs/PLAN_v0.3.3.md` for the full plan, decisions, and acceptance criteria.
 

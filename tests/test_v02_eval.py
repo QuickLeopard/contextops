@@ -246,6 +246,51 @@ def test_evaluate_runs_pipeline():
     assert report["aggregate"]["relevance"]["mean"] == 0.8
 
 
+def test_evaluate_with_curated_chunks_adds_context_precision():
+    from contextops.curator import DocumentChunk
+
+    p = Prompt(
+        system="You are helpful.",
+        documents="context here",
+        query="",
+        model="gpt-4o-mini",
+    )
+    judge = EchoJudge(score=0.8)
+    # _stub_run_fn returns "4" for the "2+2" item, "Tokyo is the capital." for
+    # Japan, "blue" for sky — one curated chunk per dataset item.
+    curated_chunks = [
+        [DocumentChunk(text="4", similarity=1.0)],
+        [DocumentChunk(text="totally unrelated filler text", similarity=1.0)],
+        [DocumentChunk(text="blue", similarity=1.0)],
+    ]
+    report = evaluate(
+        p,
+        run_fn=_stub_run_fn,
+        dataset=SAMPLE_DATASET,
+        metrics=["relevance"],
+        judge=judge,
+        curated_chunks=curated_chunks,
+    )
+    assert "context_precision" in report["aggregate"]
+    assert report["aggregate"]["context_precision"]["count"] == 3
+    # 2 of 3 curated chunks are actually reflected in the stub responses.
+    assert report["aggregate"]["context_precision"]["mean"] > 0.0
+
+
+def test_evaluate_curated_chunks_length_mismatch_raises():
+    p = Prompt(query="", documents="ctx", model="gpt-4o-mini")
+    judge = EchoJudge(score=0.8)
+    with pytest.raises(ValueError):
+        evaluate(
+            p,
+            run_fn=_stub_run_fn,
+            dataset=SAMPLE_DATASET,
+            metrics=["relevance"],
+            judge=judge,
+            curated_chunks=[[]],  # wrong length (dataset has 3 items)
+        )
+
+
 def test_evaluate_ab_returns_full_report():
     baseline = Prompt(
         query="",
@@ -272,6 +317,45 @@ def test_evaluate_ab_returns_full_report():
     assert "quality" in report
     assert "relevance" in report["quality"]
     assert report["quality"]["relevance"]["delta"] == 0.0  # both got 0.9
+
+
+def test_evaluate_ab_with_curated_chunks_reports_context_precision_delta():
+    """a_b_compare is metric-agnostic, so context_precision scores fed via
+    curated_chunks_baseline/optimized automatically surface as a row in
+    `quality` — no other evaluate_ab changes needed."""
+    from contextops.curator import DocumentChunk
+
+    baseline = Prompt(query="", documents="ctx", system="sys", model="gpt-4o-mini")
+    optimized = Prompt(system="sys", documents="ctx", query="", model="gpt-4o-mini")
+    judge = EchoJudge(score=0.9)
+
+    # _perfect_run_fn returns "4", "Tokyo", "The sky appears blue due to
+    # Rayleigh scattering." — baseline gets useful chunks, optimized gets
+    # irrelevant filler, so context_precision should differ.
+    curated_baseline = [
+        [DocumentChunk(text="4", similarity=1.0)],
+        [DocumentChunk(text="Tokyo", similarity=1.0)],
+        [DocumentChunk(text="blue due to Rayleigh scattering", similarity=1.0)],
+    ]
+    curated_optimized = [
+        [DocumentChunk(text="irrelevant filler one", similarity=1.0)],
+        [DocumentChunk(text="irrelevant filler two", similarity=1.0)],
+        [DocumentChunk(text="irrelevant filler three", similarity=1.0)],
+    ]
+
+    report = evaluate_ab(
+        baseline,
+        optimized,
+        run_fn=_perfect_run_fn,
+        dataset=SAMPLE_DATASET,
+        metrics=["relevance"],
+        judge=judge,
+        curated_chunks_baseline=curated_baseline,
+        curated_chunks_optimized=curated_optimized,
+    )
+    assert "context_precision" in report["quality"]
+    cp = report["quality"]["context_precision"]
+    assert cp["baseline_mean"] > cp["optimized_mean"]
 
 
 def test_evaluate_ab_progress_is_monotonic_and_reaches_total():
