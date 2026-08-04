@@ -75,6 +75,88 @@ def test_get_client_factory():
     raise AssertionError("should have raised")
 
 
+def test_vllm_factory():
+    """VLLMClient is reachable via 'vllm', defaults to localhost:8000/v1."""
+    from contextops_bench.clients import VLLMClient
+    client = get_client("vllm")
+    assert isinstance(client, VLLMClient)
+    assert client.base_url == "http://localhost:8000/v1"
+
+
+def test_vllm_complete_parses_openai_compatible_response():
+    """vLLM speaks OpenAI-compatible chat completions — cost is always 0 (local)."""
+    import contextops_bench.clients as c_mod
+    from contextops_bench.clients import VLLMClient
+
+    def fake_post(self, path, payload):
+        assert path == "/chat/completions"
+        return {
+            "model": "llama-3.1-8b",
+            "choices": [{"message": {"content": "hi there"}}],
+            "usage": {"prompt_tokens": 120, "completion_tokens": 8},
+        }
+
+    orig_post = c_mod.BaseHTTPClient._post
+    c_mod.BaseHTTPClient._post = fake_post
+    try:
+        client = VLLMClient()
+        resp = client.complete(
+            model="llama-3.1-8b",
+            messages=[{"role": "user", "content": "hello"}],
+        )
+        assert resp.prompt_tokens == 120
+        assert resp.completion_tokens == 8
+        assert resp.cost_usd == 0.0
+        assert resp.cached_tokens == 0
+    finally:
+        c_mod.BaseHTTPClient._post = orig_post
+
+
+def test_tgi_factory():
+    """TGIClient is reachable via 'tgi', defaults to localhost:8080."""
+    from contextops_bench.clients import TGIClient
+    client = get_client("tgi")
+    assert isinstance(client, TGIClient)
+    assert client.base_url == "http://localhost:8080"
+
+
+def test_tgi_flatten_messages():
+    from contextops_bench.clients import TGIClient
+    flat = TGIClient._flatten_messages([
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Hi"},
+    ])
+    assert "system: You are helpful." in flat
+    assert "user: Hi" in flat
+
+
+def test_tgi_complete_estimates_tokens_when_usage_missing():
+    """TGI's native /generate reports no token usage — must estimate via tiktoken."""
+    import contextops_bench.clients as c_mod
+    from contextops_bench.clients import TGIClient
+
+    def fake_post(self, path, payload):
+        assert path == "/generate"
+        assert "inputs" in payload
+        return {"generated_text": "a short reply"}
+
+    orig_post = c_mod.BaseHTTPClient._post
+    c_mod.BaseHTTPClient._post = fake_post
+    try:
+        client = TGIClient()
+        resp = client.complete(
+            model="default",
+            messages=[{"role": "user", "content": "hello world, please respond"}],
+        )
+        assert resp.text == "a short reply"
+        assert resp.prompt_tokens > 0
+        assert resp.completion_tokens > 0
+        assert resp.cost_usd == 0.0
+        assert resp.cached_tokens == 0
+    finally:
+        c_mod.BaseHTTPClient._post = orig_post
+
+
 def test_openai_direct_factory():
     """OpenAIDirectClient is reachable via 'direct_openai' or 'openai'."""
     import os

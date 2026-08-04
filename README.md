@@ -85,7 +85,7 @@ Estimated impact on a typical workload:
 | **Cache-aware reordering** | Moves stable sections to the top, variable to the bottom. Same total tokens, much higher cache hit rate. |
 | **Token counting** | tiktoken-based, model-aware (`gpt-4o`, `claude-*`, `qwen*`, fallback to `cl100k_base`). |
 | **Cost estimation** | Per-model pricing baked in; estimates $/1k calls before vs after reorder. |
-| **LLM-as-judge eval** | Built-in metrics: `faithfulness`, `relevance`, `completeness`, `conciseness`. |
+| **LLM-as-judge eval** | Built-in metrics: `faithfulness`, `relevance`, `completeness`, `conciseness`, `safety`, `format_compliance`. |
 | **A/B testing** | Run two prompts over a golden dataset, get structural + quality deltas. |
 | **Local SQLite logger** | Every LLM call goes to `~/.contextops/calls.db`. Zero cloud. |
 | **Dataset loaders** | `.json`, `.jsonl`, `.csv` golden QA datasets. |
@@ -93,7 +93,7 @@ Estimated impact on a typical workload:
 | **LiteLLM auto-log (opt)** | One line to auto-log every litellm call. `pip install "contextops[integrations]"` |
 | **OpenAI SDK patch (opt)** | One line to reorder + log every `openai.OpenAI().chat.completions.create` call. |
 | **Public benchmark dashboard** | Auto-generated HTML dashboard from `bench/results/*.summary.json`. |
-| **Bench harness** | 1000+ prompts through Ollama, LM Studio, OpenRouter, or direct APIs (Anthropic / OpenAI / Gemini / OpenCode-ZEN). |
+| **Bench harness** | 1000+ prompts through Ollama, LM Studio, vLLM, TGI, OpenRouter, or direct APIs (Anthropic / OpenAI / Gemini / OpenCode-ZEN). |
 
 ---
 
@@ -314,7 +314,7 @@ unpatch(client)
 
 ## 🧪 Bench harness
 
-1000+ prompts through Ollama, LM Studio, OpenRouter, or direct APIs:
+1000+ prompts through Ollama, LM Studio, vLLM, TGI, OpenRouter, or direct APIs:
 
 ```bash
 # Smoke (10 prompts, <30s, no LLM, for CI)
@@ -322,6 +322,10 @@ python -m contextops_bench smoke
 
 # Local (100 prompts via Ollama)
 python -m contextops_bench local --provider ollama --model llama3.1:8b --n 100
+
+# Self-hosted inference servers (vLLM / TGI) — token/latency only, no cost/cache
+python -m contextops_bench local --provider vllm --model llama-3.1-8b --n 100
+python -m contextops_bench local --provider tgi --n 100
 
 # Cloud via OpenRouter, multi-model, parallel
 export OPENROUTER_API_KEY=sk-or-v1-...
@@ -382,8 +386,8 @@ PRs welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow, conventions,
 
 Good first contributions:
 
-- New `metric` in `contextops/judge.py` (e.g. `safety`, `format_compliance`)
-- New `provider` in `contextops_bench/clients.py` (e.g. `vllm`, `tgi`)
+- New `metric` in `contextops/judge.py` (`safety` and `format_compliance` shipped — try `toxicity`, `tone`, etc.)
+- New `provider` in `contextops_bench/clients.py` (`vllm` and `tgi` shipped — try `sglang`, `bedrock`, etc.)
 - Better pricing tables for non-USD regions
 - Translations of `docs/` and `README.md`
 

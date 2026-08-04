@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Public benchmark dashboard** (`scripts/generate_dashboard.py`) generates a self-contained `docs/dashboard/index.html` from `bench/results/*.summary.json`, with summary cards, comparison charts, and per-run savings.
 - **Dashboard auto-regeneration workflow** (`.github/workflows/dashboard.yml`) regenerates and commits the dashboard whenever bench results or the generator change.
 - **One-line OpenAI SDK integration** (`contextops.integrations.openai.patch`) wraps an `openai.OpenAI` client so every `chat.completions.create` call is reordered for cache friendliness and optionally logged to the local SQLite database.
+- **`vllm` and `tgi` bench providers** (`contextops_bench/clients.py`): `VLLMClient` (OpenAI-compatible `/v1/chat/completions`) and `TGIClient` (native `/generate`, with `tiktoken`-based token estimation since TGI reports no usage). Both are local/self-hosted with `cost_usd=0.0` — used to measure token/latency savings, not cache/cost savings. Wired into `get_client()` and the `--provider` CLI choice.
+- **`safety` and `format_compliance` judge metrics** (`contextops/judge.py`): `safety` fails closed (defaults to `0.0`, not `0.5`, on unparseable judge output); `format_compliance` reuses the existing `expected` field to carry the required-format spec (e.g. `"valid JSON with keys: name, age"`) instead of an expected answer.
 
 ### Changed
 - **`Section` literal ordering in `contextops.models`** now matches the canonical stability order used by the optimizer (`documents` before `history`).
@@ -35,7 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added regression tests for position-aware hit-rate estimation, A/B compare counts, concurrent `score_many` order/progress monotonicity, dataset validation warnings, SQLite WAL concurrency, `LiteLLMJudge` retry behavior, injectable `OptimizerConfig`, and aligned `Section` literal ordering.
 - Added tests for the dashboard generator (filename parsing, dataset building, summary stats, end-to-end HTML generation).
 - Added tests for the OpenAI SDK integration (message conversion, reordering, logging, idempotent patch/unpatch).
-- Full suite: **91+ passing**.
+- Added tests for `VLLMClient`/`TGIClient` (factory dispatch, response parsing, message flattening, token estimation) and the `safety`/`format_compliance` judge metrics (fail-closed default, `expected`-as-format-spec convention).
+- Full suite: **131 passing**.
 
 See `docs/PLAN_v0.3.3.md` for the full plan, decisions, and acceptance criteria.
 

@@ -147,6 +147,48 @@ def test_score_one_handles_non_json_gracefully():
     assert "non-JSON" in result["reason"]
 
 
+def test_list_metrics_includes_safety_and_format_compliance():
+    metrics = list_metrics()
+    assert "safety" in metrics
+    assert "format_compliance" in metrics
+
+
+def test_score_one_safety_returns_valid_dict():
+    judge = EchoJudge(score=1.0)
+    result = score_one("safety", "The sky is blue.", judge=judge)
+    assert result["metric"] == "safety"
+    assert 0.0 <= result["score"] <= 1.0
+    assert result["score"] == 1.0
+
+
+def test_score_one_safety_fails_closed_on_non_json():
+    """Safety must default to 0.0 (unsafe) on unparseable judge output —
+    unlike quality metrics, which default to 0.5."""
+    def junk_judge(*, model, messages, temperature=0.0):
+        return "not json"
+
+    result = score_one("safety", "x", judge=CallableJudge(junk_judge))
+    assert result["score"] == 0.0
+
+
+def test_score_one_format_compliance_uses_expected_as_format_spec():
+    captured = {}
+
+    def fake_judge(*, model, messages, temperature=0.0):
+        captured["messages"] = messages
+        return '{"score": 0.75, "reason": "mostly compliant"}'
+
+    result = score_one(
+        "format_compliance",
+        '{"name": "Alice"}',
+        judge=CallableJudge(fake_judge),
+        expected="valid JSON with keys: name, age",
+    )
+    assert result["score"] == 0.75
+    user_msg = captured["messages"][1]["content"]
+    assert "valid JSON with keys: name, age" in user_msg
+
+
 def test_aggregate_basic():
     scores = [
         {"metric": "relevance", "score": 0.8},

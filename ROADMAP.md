@@ -18,7 +18,7 @@ blocking the others.
 | A | RAG Curator | Large (multi-week) | Not started — design only |
 | B | Access-Aware Context + Audit Trail | Large (multi-week) | Not started — design only |
 | C | Bench/Dashboard Maturity | Small (days) | Partially done — quality gates shipped, backfill pending |
-| D | New Providers/Metrics | Small (hours-days each) | Ongoing — good first contribution |
+| D | New Providers/Metrics | Small (hours-days each) | `vllm`/`tgi` + `safety`/`format_compliance` shipped — more welcome |
 
 ---
 
@@ -365,14 +365,20 @@ This is the **lowest-effort, highest-parallelism** track — good for
 onboarding a new contributor or picking up between bigger tasks. Two
 independent sub-tracks:
 
-### D1. New bench providers
+### D1. New bench providers ✅ done (`vllm`, `tgi`)
 
 Currently supported (`contextops_bench/clients.py`): `ollama`, `lmstudio`,
-`openrouter`, `direct_anthropic`, `direct_openai`, `direct_google`,
-`direct_zen`, plus `EchoClient` for offline tests.
+`vllm`, `tgi`, `openrouter`, `direct_anthropic`, `direct_openai`,
+`direct_google`, `direct_zen`, plus `EchoClient` for offline tests.
 
-**To add a new provider** (e.g. `vllm`, `tgi` — both are self-hosted
-inference servers, popular for running open-weight models):
+`VLLMClient` subclasses `OllamaClient` (OpenAI-compatible
+`/v1/chat/completions`, `cost_usd=0.0`). `TGIClient` targets TGI's native
+`/generate` endpoint, flattens `messages` into a single `inputs` string, and
+estimates token counts with `tiktoken` since TGI reports no usage. Both are
+wired into `get_client()` and the `--provider` CLI choice; neither is in
+`CACHE_BEARING_PROVIDERS` (self-hosted, no cache economics to measure).
+
+**To add another new provider** (same template as above):
 
 1. Look at `OllamaClient` in `contextops_bench/clients.py` (line ~93) as
    the template — vLLM and TGI both expose OpenAI-compatible
@@ -396,49 +402,54 @@ markers/billing to measure the way there is for Anthropic/OpenAI/Google —
 the main value is token-count/latency measurement, not cache-hit-rate
 economics. Set expectations accordingly in the PR description.
 
-### D2. New eval judge metrics
+### D2. New eval judge metrics ✅ done (`safety`, `format_compliance`)
 
 Currently supported (`contextops/judge.py::_METRICS`): `faithfulness`,
-`relevance`, `completeness`, `conciseness`.
+`relevance`, `completeness`, `conciseness`, `safety`, `format_compliance`.
 
-**To add a new metric** (e.g. `safety`, `format_compliance` — both listed
-as good-first-contributions in the README):
+`safety` follows the `conciseness` shape (`{response}` only) but **fails
+closed**: `default_score_if_missing=0.0`, not `0.5` — an unparseable safety
+verdict should read as "unsafe until proven otherwise", not blend into the
+middle of the score distribution. `format_compliance` reuses the existing
+`expected` field (already threaded through `score_one`/`score_many`/
+`eval.py`) to carry the **required format spec** instead of an expected
+answer (e.g. `expected="valid JSON with keys: name, age"`) — this avoided
+extending `contextops/dataset.py`'s `DatasetItem` schema. Document this
+`expected`-as-format-spec convention clearly wherever `format_compliance` is
+used, since `expected` normally means something else for other metrics.
+
+**To add another new metric** (same template as above):
 
 1. Add a new entry to the `_METRICS` dict in `contextops/judge.py` (see
-   lines 25-66 for the existing pattern): a `description`, a `system`
-   prompt describing what "good" means for this metric, a `user` prompt
-   template with the fields needed (e.g. `format_compliance` would need
-   `{response}` and `{expected_format}`), and a `default_score_if_missing`
-   fallback.
+   lines 25-113 for the existing pattern, including `safety` and
+   `format_compliance`): a `description`, a `system` prompt describing what
+   "good" means for this metric, a `user` prompt template with the fields
+   needed (`{response}`, and optionally `{context}`/`{query}`/`{expected}`
+   — reuse `{expected}` for spec-like inputs rather than adding new
+   `DatasetItem` fields, following `format_compliance`'s precedent), and a
+   `default_score_if_missing` fallback (default to `0.5` for quality
+   metrics; consider failing closed to `0.0`/`1.0` for safety-critical
+   metrics, as `safety` does).
 2. Check `contextops/eval.py::evaluate_ab()` to see how metrics are wired
    into the A/B report — a new metric name in `_METRICS` should "just work"
    once added, since the eval loop iterates over whatever metrics you pass
    in via `--metrics` (CLI) or the `metrics=[...]` parameter (Python API).
-3. Add unit tests in the judge test file (check `tests/` for the existing
-   judge tests) using the offline echo-judge pattern (no real LLM calls
-   needed — the existing tests mock `JudgeClient.complete()`).
-4. Update the README's CLI example (`--metrics relevance,completeness,...`)
-   to mention the new metric is available.
-
-**Example for `safety`**: system prompt could be "Score how safe the
-RESPONSE is — does it avoid harmful, illegal, or dangerous content, even if
-asked?", user template needs `{response}` only (no context/query needed).
-
-**Example for `format_compliance`**: needs a way to specify the expected
-format (e.g. "must be valid JSON", "must be a numbered list") — this would
-require extending the dataset schema (`contextops/dataset.py`) with an
-optional `expected_format` field per item, since it's not always inferable
-from the query alone.
+3. Add unit tests in `tests/test_v02_eval.py` following the pattern used
+   for `safety`/`format_compliance` (offline `CallableJudge`/`EchoJudge`,
+   no real LLM calls).
+4. Update the README's "LLM-as-judge eval" feature row and CLI example
+   (`--metrics relevance,completeness,...`) to mention the new metric.
 
 ### Acceptance criteria
 
 - New provider: unit tests pass with mocked HTTP responses, `smoke` test
   (`python -m contextops_bench smoke`) still passes (uses `EchoClient`,
   unaffected by new providers, but confirms nothing broke the dispatch
-  logic).
+  logic). ✅ verified for `vllm`/`tgi`.
 - New metric: unit tests pass with a mocked judge client, CLI
   `--metrics <new_metric>` works end-to-end against the echo judge
-  (`contextops eval --echo --run-fn echo ...`).
+  (`contextops eval --echo --run-fn echo ...`). ✅ verified for
+  `safety`/`format_compliance`.
 
 ---
 
@@ -448,7 +459,7 @@ from the query alone.
 2. Check `CONTRIBUTING.md` for the PR workflow, commit conventions, and
    how releases/`CHANGELOG.md` entries work.
 3. Run the full test suite before and after your change:
-   `pytest` (should stay green — currently 122 tests passing).
+   `pytest` (should stay green — currently 131 tests passing).
 4. Run `ruff check .` and `mypy contextops contextops_bench` before
    committing — this repo has zero tolerance for lint/type errors on
    touched files.

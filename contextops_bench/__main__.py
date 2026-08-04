@@ -100,8 +100,8 @@ def _resolve_preset_args(args) -> tuple[str | None, str | None, str | None, str,
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--provider", default="echo",
-                        choices=["echo", "ollama", "lmstudio", "openrouter",
-                                 "direct_anthropic", "direct_zen",
+                        choices=["echo", "ollama", "lmstudio", "vllm", "tgi",
+                                 "openrouter", "direct_anthropic", "direct_zen",
                                  "direct_openai", "direct_google"])
     parser.add_argument("--model", default=None,
                         help="Model name (provider-specific). If unset, uses provider default. "
@@ -134,6 +134,9 @@ def _make_client_and_model(args) -> tuple:
             model = models[0] if models else "llama3.1"
         elif args.provider == "lmstudio":
             model = "local-model"
+        elif args.provider in ("vllm", "tgi"):
+            models = client.list_models()
+            model = models[0] if models else "default"
         elif args.provider == "openrouter":
             model = "openai/gpt-4o-mini"
         else:

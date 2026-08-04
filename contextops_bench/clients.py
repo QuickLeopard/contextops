@@ -1,6 +1,8 @@
-"""LLM clients for bench: Ollama, LM Studio, OpenRouter.
+"""LLM clients for bench: Ollama, LM Studio, vLLM, TGI, OpenRouter, and
+direct cloud providers (Anthropic, OpenAI, Google, Zen).
 
-All three speak OpenAI-compatible HTTP. We just change `base_url`.
+Ollama/LM Studio/vLLM speak OpenAI-compatible HTTP — we just change
+`base_url`. TGI uses its own native `/generate` API instead.
 """
 
 from __future__ import annotations
@@ -142,6 +144,89 @@ class LMStudioClient(OllamaClient):
 
     def __init__(self, base_url: str = "http://localhost:1234/v1", **kwargs):
         super().__init__(base_url, **kwargs)
+
+
+class VLLMClient(OllamaClient):
+    """vLLM — self-hosted, OpenAI-compatible /v1/chat/completions, default
+    http://localhost:8000/v1. No cost, no cache economics: this client exists
+    purely to benchmark token-count / latency savings from prompt optimization
+    on local infra, same as Ollama/LM Studio.
+    """
+
+    PROVIDER = "vllm"
+
+    def __init__(self, base_url: str = "http://localhost:8000/v1", **kwargs):
+        super().__init__(base_url, **kwargs)
+
+
+class TGIClient(BaseHTTPClient):
+    """HuggingFace Text Generation Inference — native `/generate` endpoint.
+
+    Unlike vLLM, TGI's native API takes a single `inputs` string rather than
+    a chat `messages` list, and does not report token usage in its response.
+    We flatten `messages` into a single prompt string and estimate token
+    counts with `tiktoken` (already a dependency via contextops.optimizer)
+    since TGI gives us none. No cost, no cache economics — local infra only.
+
+    Default base_url: http://localhost:8080
+    """
+
+    PROVIDER = "tgi"
+    supports_split_messages: bool = False
+
+    def __init__(self, base_url: str = "http://localhost:8080", **kwargs):
+        super().__init__(base_url, **kwargs)
+
+    def list_models(self) -> list[str]:
+        try:
+            data = self._get("/info")
+            model_id = data.get("model_id")
+            return [model_id] if model_id else ["tgi-model"]
+        except Exception:
+            return ["tgi-model"]
+
+    @staticmethod
+    def _flatten_messages(messages: list[dict]) -> str:
+        """TGI's /generate takes one prompt string, not chat messages."""
+        parts = []
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            parts.append(f"{role}: {content}")
+        return "\n\n".join(parts)
+
+    def complete(self, *, model: str, messages: list[dict],
+                 temperature: float = 0.0, max_tokens: int = 64,
+                 system: str | None = None) -> CompletionResponse:
+        from contextops.optimizer import count_tokens
+
+        t0 = time.time()
+        if system:
+            messages = [{"role": "system", "content": system}] + list(messages)
+        prompt = self._flatten_messages(messages)
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": max_tokens,
+                "temperature": max(temperature, 0.01),  # TGI rejects 0.0
+            },
+        }
+        raw = self._post("/generate", payload)
+        raw["_latency_ms"] = (time.time() - t0) * 1000
+
+        text = raw.get("generated_text", "")
+        # TGI's native /generate does not report token usage — estimate.
+        prompt_tokens = count_tokens(prompt)
+        completion_tokens = count_tokens(text)
+        return CompletionResponse(
+            text=text,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_tokens=0,
+            cost_usd=0.0,  # local = free
+            model=model,
+            raw=raw,
+        )
 
 
 class AnthropicDirectClient(BaseHTTPClient):
@@ -975,12 +1060,16 @@ class EchoClient:
 
 
 def get_client(provider: str, **kwargs) -> BaseHTTPClient | EchoClient:
-    """Factory: 'ollama' | 'lmstudio' | 'openrouter' | 'direct_anthropic' | 'direct_zen' | 'direct_openai' | 'direct_google' | 'echo'."""
+    """Factory: 'ollama' | 'lmstudio' | 'vllm' | 'tgi' | 'openrouter' | 'direct_anthropic' | 'direct_zen' | 'direct_openai' | 'direct_google' | 'echo'."""
     p = provider.lower()
     if p == "ollama":
         return OllamaClient(**kwargs)
     if p == "lmstudio":
         return LMStudioClient(**kwargs)
+    if p == "vllm":
+        return VLLMClient(**kwargs)
+    if p == "tgi":
+        return TGIClient(**kwargs)
     if p == "openrouter":
         return OpenRouterClient(**kwargs)
     if p == "direct_anthropic" or p == "anthropic":
@@ -995,6 +1084,6 @@ def get_client(provider: str, **kwargs) -> BaseHTTPClient | EchoClient:
         return EchoClient()
     raise ValueError(
         f"Unknown provider: {provider}. "
-        f"Use ollama/lmstudio/openrouter/direct_anthropic/direct_zen/"
+        f"Use ollama/lmstudio/vllm/tgi/openrouter/direct_anthropic/direct_zen/"
         f"direct_openai/direct_google/echo."
     )
