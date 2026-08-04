@@ -93,7 +93,7 @@ Estimated impact on a typical workload:
 | **Rich CLI** | `optimize / curate / stats / recent / compare / eval / reset` with tables and progress bars. |
 | **LiteLLM auto-log (opt)** | One line to auto-log every litellm call. `pip install "contextops[integrations]"` |
 | **OpenAI SDK patch (opt)** | One line to reorder + log every `openai.OpenAI().chat.completions.create` call. |
-| **Public benchmark dashboard** | Auto-generated HTML dashboard from `bench/results/*.summary.json`. |
+| **Public benchmark dashboard** | Auto-generated HTML dashboard from `bench/results/*.summary.json` (cache/cost) and `*.curator_summary.json` (RAG curator: token/quality impact). |
 | **Bench harness** | 1000+ prompts through Ollama, LM Studio, vLLM, TGI, OpenRouter, or direct APIs (Anthropic / OpenAI / Gemini / OpenCode-ZEN). |
 
 ---
@@ -121,7 +121,7 @@ git clone https://github.com/QuickLeopard/contextops.git
 cd contextops
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,integrations]"
-pytest                                          # 53 tests
+pytest                                          # 171 tests
 python -m contextops_bench smoke               # offline smoke
 ```
 
@@ -384,6 +384,14 @@ python -m contextops_bench cloud --provider direct_openai \
     --model gpt-4o-mini --preset-agent realistic --n 30          # automatic caching, 50% off
 python -m contextops_bench cloud --provider direct_google \
     --model google/gemini-2.5-flash --preset-agent realistic --n 30  # implicit caching, 10% off
+
+# RAG Curator bench: synthetic noisy-retrieval dataset, raw vs curated chunks,
+# real LLM, measures token/cost savings AND answer-quality impact
+# (judge metrics + deterministic context_precision). Offline smoke:
+python -m contextops_bench curator --provider echo --echo-judge --n 20
+# Real run:
+python -m contextops_bench curator --provider ollama --model llama3.1:8b \
+    --n 50 --noise-ratio 0.7 --metrics relevance,completeness
 ```
 
 **About `--preset-agent`:** the bench needs a stable system prompt + tool schema + role across all calls for cache hits to be non-zero. `--preset-agent realistic` pins all three. On cache-bearing providers (OpenRouter + the four `direct_*`), the bench auto-applies `realistic` if you don't pass a preset — with a loud warning explaining why. Use `--preset-agent none` to opt out and use randomized prompts.
@@ -392,6 +400,7 @@ Each run writes:
 
 - `bench/results/<label>.csv` — every observation (prompt_id, model, tokens, cache hit, cost, latency, error, section order)
 - `bench/results/<label>.summary.json` — aggregated stats with optimized vs baseline deltas
+- `bench/results/<label>.curator_summary.json` (curator subcommand only) — raw vs curated stats, quality deltas, context precision
 
 **Troubleshooting cache reads showing 0?** Read [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md) — it covers the realistic-preset cache key regression, why OpenRouter drops `cache_control` markers during translation, and why EchoClient (used in unit tests) hides the bug.
 
@@ -404,7 +413,7 @@ See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for the formal pass criteria.
 - ✅ **v0.1** — reorder, token count, SQLite logger, CLI
 - ✅ **v0.2** — LLM-as-judge eval + A/B testing + dataset loaders
 - ✅ **v0.3** — realistic-preset cache-key regression fix + direct providers (Anthropic / Zen / OpenAI / Gemini) + CI bench regression gate + safety-net auto-default on cache-bearing providers + deterministic bench quality gates (confidence scoring, error classification, run timestamps). See [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md).
-- 🔜 **v0.4** — RAG curator (multi-signal retrieval + strict threshold)
+- ✅ **v0.4** — RAG curator (multi-signal retrieval + strict threshold) + real-LLM bench (raw vs curated: token/cost + answer-quality impact) + public dashboard integration
 - 🔜 **v1.0** — Access-aware context + audit trail (on-prem / enterprise)
 
 See [`ROADMAP.md`](ROADMAP.md) for a detailed, implementation-ready breakdown of every upcoming track (RAG curator, access-aware context, bench/dashboard maturity, new providers/metrics) — written to be actionable for a junior engineer picking up any item.

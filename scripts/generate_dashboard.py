@@ -101,6 +101,106 @@ def _load_runs() -> list[dict]:
     return runs
 
 
+def _load_curator_runs() -> list[dict]:
+    """Load `bench/results/*.curator_summary.json` (RAG curator bench results).
+
+    Distinct suffix from `_load_runs()`'s `*.summary.json` — the curator
+    bench schema has no cache-hit-rate / quality-gate fields, so it doesn't
+    run through `evaluate_quality_gate`. `run_curator_bench()` stores
+    ground-truth `provider`/`model` directly in the summary (same pattern as
+    `runner.summarize()`), so no filename parsing is needed here.
+    """
+    runs = []
+    for path in sorted(RESULTS_DIR.glob("*.curator_summary.json")):
+        try:
+            data = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        runs.append({
+            "path": str(path.relative_to(ROOT)),
+            "provider": data.get("provider", "unknown"),
+            "model": data.get("model", "unknown"),
+            "data": data,
+        })
+    return runs
+
+
+def _render_curator_rows(curator_runs: list[dict]) -> str:
+    rows = []
+    for r in curator_runs:
+        data = r["data"]
+        raw = data.get("raw", {})
+        curated = data.get("curated", {})
+        delta = data.get("delta", {})
+        quality = data.get("quality", {})
+        cp_raw = _safe(raw, "context_precision_mean")
+        cp_curated = _safe(curated, "context_precision_mean")
+        tokens_delta = _safe(delta, "prompt_tokens_delta_mean")
+        cost_delta = _safe(delta, "cost_delta_usd_per_call")
+        tokens_class = "text-emerald-600" if tokens_delta < 0 else "text-slate-600"
+        cost_class = "text-emerald-600" if cost_delta < 0 else "text-slate-600"
+        cp_class = "text-emerald-600" if cp_curated >= cp_raw else "text-amber-600"
+        quality_str = ", ".join(
+            f"{m}: {d.get('delta', 0):+.3f}" for m, d in quality.items()
+        ) or "n/a"
+
+        rows.append(
+            f"""<tr class="hover:bg-slate-50">
+  <td class="px-6 py-3 font-medium">{r['provider']}</td>
+  <td class="px-6 py-3 text-slate-600">{r['model']}</td>
+  <td class="px-6 py-3 text-right">{data.get('n', 0)}</td>
+  <td class="px-6 py-3 text-right {tokens_class}">{tokens_delta:+.1f}</td>
+  <td class="px-6 py-3 text-right {cost_class}">${cost_delta:+.6f}</td>
+  <td class="px-6 py-3 text-right {cp_class}">{cp_raw:.1%} &rarr; {cp_curated:.1%}</td>
+  <td class="px-6 py-3 text-slate-600 text-xs">{quality_str}</td>
+</tr>"""
+        )
+    return "\n".join(rows)
+
+
+def _render_curator_section(curator_runs: list[dict]) -> str:
+    """Return the "RAG Curator Bench" HTML fragment, or "" if no runs exist.
+
+    Own self-contained fragment (own table, no charts) — kept independent
+    of the cache-hit-rate section above since the two bench modes measure
+    unrelated axes (content filtering vs section ordering).
+    """
+    if not curator_runs:
+        return ""
+    rows = _render_curator_rows(curator_runs)
+    return f"""
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-10">
+      <h2 class="text-lg font-semibold p-6 border-b border-slate-200">RAG Curator Bench</h2>
+      <p class="text-xs text-slate-400 px-6 pt-2 pb-4">
+        Raw (uncurated top-K chunks) vs curated (<code>contextops.curator.curate()</code>-filtered)
+        on the same synthetic noisy-retrieval dataset, same query, same LLM. Context precision is
+        the fraction of kept chunks reflected in the response (n-gram overlap heuristic, no extra
+        LLM call). Quality &Delta; is judge-metric delta, curated minus raw.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-100 text-slate-600">
+            <tr>
+              <th class="text-left px-6 py-3 font-medium">Provider</th>
+              <th class="text-left px-6 py-3 font-medium">Model</th>
+              <th class="text-right px-6 py-3 font-medium">n</th>
+              <th class="text-right px-6 py-3 font-medium">Tokens &Delta;</th>
+              <th class="text-right px-6 py-3 font-medium">Cost &Delta;/call</th>
+              <th class="text-right px-6 py-3 font-medium">Context precision (raw &rarr; curated)</th>
+              <th class="text-left px-6 py-3 font-medium">Quality &Delta; (curated&minus;raw)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {rows}
+          </tbody>
+        </table>
+      </div>
+    </section>
+"""
+
+
 def _safe(d: dict, *keys: str, default=0.0) -> float:
     for key in keys:
         if isinstance(d, dict) and key in d:
@@ -269,6 +369,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </table>
       </div>
     </section>
+
+    __CURATOR_SECTION__
   </div>
 
   <script>
@@ -409,7 +511,8 @@ def _render_table(runs: list[dict]) -> str:
 
 def main() -> None:
     runs = _load_runs()
-    if not runs:
+    curator_runs = _load_curator_runs()
+    if not runs and not curator_runs:
         print(f"No summary JSON files found in {RESULTS_DIR}")
         return
 
@@ -434,10 +537,11 @@ def main() -> None:
         .replace("__BASELINE_COSTS_JSON__", json.dumps(datasets["baseline_costs"]))
         .replace("__DELTAS_JSON__", json.dumps(datasets["deltas"]))
         .replace("__TABLE_ROWS__", _render_table(runs))
+        .replace("__CURATOR_SECTION__", _render_curator_section(curator_runs))
     )
 
     output.write_text(html)
-    print(f"Wrote dashboard to {output} ({len(runs)} runs)")
+    print(f"Wrote dashboard to {output} ({len(runs)} runs, {len(curator_runs)} curator runs)")
 
 
 if __name__ == "__main__":

@@ -33,6 +33,20 @@ command, and optional `curated_chunks`/`curated_chunks_baseline`/
 n-gram-overlap heuristic, not an LLM judge, to keep it free and fast). See
 `tests/test_curator.py` and the new tests in `tests/test_v02_eval.py`.
 
+**Also implemented (real-LLM validation, beyond the original stretch goal)**:
+`contextops_bench/curator_bench.py` — a dedicated bench that runs a synthetic
+noisy-retrieval dataset (`generate_curation_dataset()`, deterministic given a
+seed) through a real LLM twice per query (raw/uncurated vs `curate()`-filtered
+chunks), measuring token/cost deltas AND answer-quality impact (judge metrics
++ `context_precision`), via `python -m contextops_bench curator`. This is a
+different independent variable from the existing cache-hit-rate bench in
+`contextops_bench/runner.py` (content filtering vs section ordering), so it's
+a separate module reusing only the low-level LLM client plumbing. Results
+(`*.curator_summary.json`) feed a new "RAG Curator Bench" section in
+`scripts/generate_dashboard.py`, rendered independently of the existing
+cache/cost charts. See `tests/test_curator_bench.py` and the extended
+`tests/test_dashboard_generator.py`.
+
 One deviation from the original design below: recency uses a proper
 half-life formula (`0.5 ** (age_days / half_life_days)`, so a chunk aged
 exactly `half_life_days` scores 0.5), not the `exp(-age_days/half_life_days)`
@@ -474,7 +488,7 @@ used, since `expected` normally means something else for other metrics.
 2. Check `CONTRIBUTING.md` for the PR workflow, commit conventions, and
    how releases/`CHANGELOG.md` entries work.
 3. Run the full test suite before and after your change:
-   `pytest` (should stay green — currently 154 tests passing).
+   `pytest` (should stay green — currently 171 tests passing).
 4. Run `ruff check .` and `mypy contextops contextops_bench` before
    committing — this repo has zero tolerance for lint/type errors on
    touched files.

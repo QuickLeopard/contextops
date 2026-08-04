@@ -10,10 +10,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
+from contextops.curator import CuratorConfig
 from contextops_bench.clients import get_client
+from contextops_bench.curator_bench import (
+    generate_curation_dataset,
+    render_curator_summary,
+    run_curator_bench,
+)
 from contextops_bench.prompt_factory import generate_many, EDGE_CASES, AGENT_PRESETS
 from contextops_bench.runner import (
     render_summary,
@@ -265,6 +272,104 @@ def run_all(args) -> int:
     return rc
 
 
+def _add_curator_args(parser: argparse.ArgumentParser) -> None:
+    """Args for the `curator` subcommand — deliberately separate from
+    `_add_common_args`: the RAG curator bench has no system/tools/cache
+    angle at all, so `--fixed-system`/`--fixed-tools`/`--preset-agent`
+    would be dead, confusing options here.
+    """
+    parser.add_argument("--provider", default="echo",
+                        choices=["echo", "ollama", "lmstudio", "vllm", "tgi",
+                                 "openrouter", "direct_anthropic", "direct_zen",
+                                 "direct_openai", "direct_google"],
+                        help="LLM under test (the 'client' whose responses are compared "
+                             "raw vs curated). Independent of judge selection below.")
+    parser.add_argument("--model", default=None,
+                        help="Model name (provider-specific). If unset, uses provider default.")
+    parser.add_argument("--n", type=int, default=50, help="Number of synthetic dataset items")
+    parser.add_argument("--parallel", type=int, default=1, help="Max concurrent judge calls")
+    parser.add_argument("--out", type=Path, default=Path("bench/results"))
+    parser.add_argument("--label", default=None)
+    parser.add_argument("--noise-ratio", type=float, default=0.7,
+                        help="Fraction of each item's chunks that are noise (0..1)")
+    parser.add_argument("--chunks-per-item", type=int, default=6)
+    parser.add_argument("--dup-rate", type=float, default=0.15,
+                        help="Probability of injecting a near-duplicate relevant chunk")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--threshold", type=float, default=0.6,
+                        help="curate() strict cutoff score")
+    parser.add_argument("--dedup-threshold", type=float, default=0.9,
+                        help="curate() Jaccard dedup threshold")
+    parser.add_argument("--metrics", default="relevance,completeness",
+                        help="Comma-separated judge metrics")
+    parser.add_argument("--judge-model", default="gpt-4o-mini",
+                        help="Model used as judge (ignored if --echo-judge)")
+    parser.add_argument("--echo-judge", action="store_true",
+                        help="Use offline echo judge for scoring (no judge API calls). "
+                             "Independent of --provider — you can bench a real LLM "
+                             "under test while still using a free/offline judge.")
+
+
+def curator(args) -> int:
+    """Bench the RAG curator: raw (uncurated) vs curated chunks on a real LLM,
+    measuring token/cost savings AND answer-quality impact.
+    """
+    from contextops.clients import EchoJudge, LiteLLMJudge
+    from contextops.judge import JudgeClient
+
+    client, model = _make_client_and_model(args)
+
+    judge: JudgeClient
+    if args.echo_judge:
+        judge = EchoJudge()
+        judge_label = "echo"
+    else:
+        try:
+            judge = LiteLLMJudge()
+            judge_label = args.judge_model
+        except RuntimeError:
+            print("[bench] litellm not installed — falling back to offline EchoJudge. "
+                  "Install with: pip install 'contextops[integrations]'")
+            judge = EchoJudge()
+            judge_label = "echo (fallback)"
+
+    print(f"[bench] curator: provider={args.provider}  model={model}  n={args.n}  "
+          f"noise_ratio={args.noise_ratio}  judge={judge_label}")
+
+    items = generate_curation_dataset(
+        args.n,
+        noise_ratio=args.noise_ratio,
+        chunks_per_item=args.chunks_per_item,
+        dup_rate=args.dup_rate,
+        seed=args.seed,
+    )
+    config = CuratorConfig(threshold=args.threshold, dedup_threshold=args.dedup_threshold)
+    metrics = [m.strip() for m in args.metrics.split(",") if m.strip()]
+
+    summary = run_curator_bench(
+        items,
+        client=client,
+        model=model,
+        judge=judge,
+        metrics=metrics,
+        config=config,
+        judge_model=args.judge_model,
+        max_workers=args.parallel,
+    )
+
+    label = args.label or f"curator_{args.provider}"
+    text = render_curator_summary(summary, label)
+    print()
+    print(text)
+
+    out_dir: Path = args.out
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{label}.curator_summary.json"
+    out_path.write_text(json.dumps(summary, indent=2))
+    print(f"\n[bench] curator summary: {out_path}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="bench", description="ContextOps benchmark runner")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -288,6 +393,12 @@ def main() -> int:
     p_all = sub.add_parser("run_all", help="Smoke + selected provider")
     _add_common_args(p_all)
     p_all.set_defaults(func=run_all)
+
+    p_curator = sub.add_parser(
+        "curator", help="Bench the RAG curator: raw vs curated chunks on a real LLM"
+    )
+    _add_curator_args(p_curator)
+    p_curator.set_defaults(func=curator)
 
     args = parser.parse_args()
     return args.func(args)
