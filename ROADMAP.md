@@ -66,6 +66,30 @@ knob). Dashboard's curator table gained a verified/unverified badge. See
 `tests/test_curator_bench.py` (`_ClientAsJudge`, `evaluate_curator_quality_gate`)
 and `tests/test_bench_curator_cli.py` (`_select_curator_judge()` precedence).
 
+**Also implemented (hardened testing for production readiness, closing the
+gap where the curator/bench were only validated against 15 hardcoded fact
+Q&A pairs)**: `tests/test_curator_fuzz.py` uses `hypothesis` to fuzz
+`contextops.curator`'s pure functions (bounds/determinism/never-raises
+invariants on unicode, empty, and 10k-word text; documents the bag-of-words
+dedup's known synonym-swap blind spot as expected, not a bug).
+`generate_curation_dataset(..., style=...)` in `contextops_bench/curator_
+bench.py` now supports 7 `PROMPT_STYLES` (`qa_short`, `long_document`,
+`code`, `structured`, `multilingual`, `multi_turn`, `adversarial_noise`) via
+`--prompt-style`. New `contextops_bench/embedders.py` (`TfidfEmbedder`,
+`OpenAIEmbedder`, `get_embedder()`) computes real cosine similarity instead
+of the default synthetic uniform-range similarity, via `--embedder
+{tfidf,openai}` — **note**: real embedding cosine similarity is on a much
+lower numeric scale (~0.03-0.15 for TF-IDF) than the synthetic default
+(0.10-0.98), so `--threshold` needs lowering accordingly when using
+`--embedder` (documented in `README.md`; discovered via manual end-to-end
+smoke test against a real provider). `load_curation_dataset()` + `--dataset
+<path.json>` let a real production chunk export (same schema as `contextops
+curate --chunks`) drive the bench instead of synthetic data, mutually
+exclusive with every synthetic-generator flag via
+`_check_dataset_mutual_exclusivity()` in `contextops_bench/__main__.py`. See
+`tests/test_curator_fuzz.py`, `tests/test_embedders.py`, and the extended
+`tests/test_curator_bench.py`/`tests/test_bench_curator_cli.py`.
+
 One deviation from the original design below: recency uses a proper
 half-life formula (`0.5 ** (age_days / half_life_days)`, so a chunk aged
 exactly `half_life_days` scores 0.5), not the `exp(-age_days/half_life_days)`
@@ -507,7 +531,7 @@ used, since `expected` normally means something else for other metrics.
 2. Check `CONTRIBUTING.md` for the PR workflow, commit conventions, and
    how releases/`CHANGELOG.md` entries work.
 3. Run the full test suite before and after your change:
-   `pytest` (should stay green — currently 191 tests passing).
+   `pytest` (should stay green — currently 250 tests passing).
 4. Run `ruff check .` and `mypy contextops contextops_bench` before
    committing — this repo has zero tolerance for lint/type errors on
    touched files.

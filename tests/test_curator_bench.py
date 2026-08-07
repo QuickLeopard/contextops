@@ -12,17 +12,23 @@ behavior a real LLM should approximate.
 
 from __future__ import annotations
 
+import json
+
 from contextops.clients import EchoJudge
 from contextops.judge import score_many
 from contextops_bench.clients import CompletionResponse
 from contextops_bench.curator_bench import (
+    ALL_PROMPT_STYLES,
     CurationBenchItem,
+    PROMPT_STYLES,
     _ClientAsJudge,
     evaluate_curator_quality_gate,
     generate_curation_dataset,
+    load_curation_dataset,
     run_curator_bench,
     render_curator_summary,
 )
+from contextops_bench.embedders import TfidfEmbedder
 
 
 class _FakeAnswerClient:
@@ -319,3 +325,172 @@ def test_render_curator_summary_includes_judge_and_quality_gate_sections():
     assert "judge=self" in text
     assert "self-judged" in text
     assert "QUALITY GATE" in text
+
+
+# --- Prompt-style profiles ------------------------------------------------
+
+def test_all_prompt_styles_generate_valid_non_empty_items():
+    for style in ALL_PROMPT_STYLES:
+        items = generate_curation_dataset(6, style=style, seed=3)
+        assert len(items) == 6
+        for it in items:
+            assert it.query
+            assert it.chunks
+
+
+def test_unknown_prompt_style_raises():
+    try:
+        generate_curation_dataset(1, style="nonexistent_style")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "Unknown style" in str(e)
+
+
+def test_prompt_style_deterministic_given_seed():
+    for style in ALL_PROMPT_STYLES:
+        a = generate_curation_dataset(5, style=style, seed=99)
+        b = generate_curation_dataset(5, style=style, seed=99)
+        assert [it.query for it in a] == [it.query for it in b]
+        assert [[c.text for c in it.chunks] for it in a] == [[c.text for c in it.chunks] for it in b]
+
+
+def test_multi_turn_style_wraps_query_with_conversation_prefix():
+    items = generate_curation_dataset(5, style="multi_turn", seed=1)
+    for it in items:
+        assert it.query.startswith("User: Can you help me with something?")
+        assert "\nUser: " in it.query.rsplit("\n", 1)[0] or it.query.count("User:") == 2
+
+
+def test_adversarial_noise_style_uses_lexically_close_decoys():
+    items = generate_curation_dataset(20, style="adversarial_noise", noise_ratio=0.7,
+                                       chunks_per_item=6, dup_rate=0.0, seed=7)
+    # At least one noise chunk across the dataset should come from the
+    # per-fact decoy pool (not the generic unrelated NOISE_CHUNKS list).
+    from contextops_bench.curator_bench import _ADVERSARIAL_DECOYS, NOISE_CHUNKS
+    all_decoy_texts = {t for decoys in _ADVERSARIAL_DECOYS.values() for t in decoys}
+    all_chunk_texts = {c.text for it in items for c in it.chunks}
+    assert all_chunk_texts & all_decoy_texts
+    # Generic noise should NOT appear when a decoy pool exists for the query.
+    for it in items:
+        if it.query in _ADVERSARIAL_DECOYS:
+            noise_texts = {c.text for c in it.chunks} - {c.text for c in it.chunks if c.similarity > 0.7}
+            assert not (noise_texts & set(NOISE_CHUNKS))
+
+
+def test_qa_short_style_matches_default_behavior():
+    """style='qa_short' (the default) must be identical to omitting style."""
+    a = generate_curation_dataset(10, seed=5)
+    b = generate_curation_dataset(10, seed=5, style="qa_short")
+    assert [it.query for it in a] == [it.query for it in b]
+
+
+def test_prompt_styles_dict_matches_all_prompt_styles_list():
+    assert set(PROMPT_STYLES.keys()) == set(ALL_PROMPT_STYLES)
+
+
+# --- Real-embedding integration -------------------------------------------
+
+def test_generate_curation_dataset_with_embedder_computes_real_similarity():
+    embedder = TfidfEmbedder()
+    items = generate_curation_dataset(10, seed=13, embedder=embedder, noise_ratio=0.7,
+                                       chunks_per_item=6, dup_rate=0.0)
+    for it in items:
+        for c in it.chunks:
+            assert 0.0 <= c.similarity <= 1.0
+
+
+def test_generate_curation_dataset_embedder_relevant_scores_higher_than_noise():
+    """With a real embedder, the actually-relevant chunk should score higher
+    similarity than noise chunks more often than not (statistical, not
+    per-item guarantee — TF-IDF is a coarse proxy)."""
+    embedder = TfidfEmbedder()
+    items = generate_curation_dataset(30, seed=17, embedder=embedder, noise_ratio=0.7,
+                                       chunks_per_item=6, dup_rate=0.0)
+    higher_count = 0
+    for it in items:
+        relevant_sims = [c.similarity for c in it.chunks if c.text not in
+                          {n for n in PROMPT_STYLES["qa_short"]["noise"]}]
+        noise_sims = [c.similarity for c in it.chunks if c.text in
+                      set(PROMPT_STYLES["qa_short"]["noise"])]
+        if relevant_sims and noise_sims:
+            if max(relevant_sims) > max(noise_sims):
+                higher_count += 1
+    assert higher_count > len(items) * 0.5
+
+
+def test_generate_curation_dataset_without_embedder_uses_synthetic_ranges():
+    """Default (embedder=None) behavior must be unchanged — regression guard."""
+    items = generate_curation_dataset(10, seed=13, noise_ratio=0.7, chunks_per_item=6, dup_rate=0.0)
+    for it in items:
+        for c in it.chunks:
+            assert 0.10 <= c.similarity <= 0.98
+
+
+# --- Production data harness ----------------------------------------------
+
+def test_load_curation_dataset_round_trip(tmp_path):
+    data = [
+        {
+            "query": "What is the capital of France?",
+            "expected": "Paris",
+            "chunks": [
+                {"text": "Paris is the capital of France.", "similarity": 0.95},
+                {"text": "Unrelated noise chunk.", "similarity": 0.1},
+            ],
+        },
+        {
+            "query": "Who wrote Hamlet?",
+            "chunks": [{"text": "Shakespeare wrote Hamlet.", "similarity": 0.9}],
+        },
+    ]
+    path = tmp_path / "dataset.json"
+    path.write_text(json.dumps(data))
+
+    items = load_curation_dataset(str(path))
+    assert len(items) == 2
+    assert items[0].query == "What is the capital of France?"
+    assert items[0].expected == "Paris"
+    assert len(items[0].chunks) == 2
+    assert items[0].chunks[0].similarity == 0.95
+    # Missing "expected" defaults to "".
+    assert items[1].expected == ""
+
+
+def test_load_curation_dataset_missing_required_field_raises(tmp_path):
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps([{"query": "no chunks field"}]))
+    try:
+        load_curation_dataset(str(path))
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "missing required" in str(e)
+
+
+def test_load_curation_dataset_not_a_list_raises(tmp_path):
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps({"not": "a list"}))
+    try:
+        load_curation_dataset(str(path))
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "expected a JSON list" in str(e)
+
+
+def test_load_curation_dataset_feeds_run_curator_bench(tmp_path):
+    data = [{
+        "query": "What is the capital of France?",
+        "expected": "Paris",
+        "chunks": [
+            {"text": "Paris is the capital of France.", "similarity": 0.95},
+            {"text": "Some unrelated filler text about weather.", "similarity": 0.1},
+        ],
+    }] * 5
+    path = tmp_path / "dataset.json"
+    path.write_text(json.dumps(data))
+
+    items = load_curation_dataset(str(path))
+    summary = run_curator_bench(
+        items, client=_FakeAnswerClient(), model="fake-model", judge=EchoJudge(),
+        metrics=["relevance"], judge_model="echo",
+    )
+    assert summary["n"] == 5

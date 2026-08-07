@@ -275,6 +275,20 @@ def run_all(args) -> int:
     return rc
 
 
+# Defaults for the synthetic-dataset-only curator flags. Shared between
+# `_add_curator_args` (so argparse defaults stay in sync) and
+# `_check_dataset_mutual_exclusivity` (so it can detect an explicit
+# non-default override without a separate hardcoded copy).
+_SYNTHETIC_ONLY_DEFAULTS: dict[str, Any] = {
+    "noise_ratio": 0.7,
+    "chunks_per_item": 6,
+    "dup_rate": 0.15,
+    "seed": 42,
+    "prompt_style": "qa_short",
+    "embedder": "none",
+}
+
+
 def _add_curator_args(parser: argparse.ArgumentParser) -> None:
     """Args for the `curator` subcommand — deliberately separate from
     `_add_common_args`: the RAG curator bench has no system/tools/cache
@@ -293,12 +307,36 @@ def _add_curator_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--parallel", type=int, default=1, help="Max concurrent judge calls")
     parser.add_argument("--out", type=Path, default=Path("bench/results"))
     parser.add_argument("--label", default=None)
-    parser.add_argument("--noise-ratio", type=float, default=0.7,
-                        help="Fraction of each item's chunks that are noise (0..1)")
-    parser.add_argument("--chunks-per-item", type=int, default=6)
-    parser.add_argument("--dup-rate", type=float, default=0.15,
-                        help="Probability of injecting a near-duplicate relevant chunk")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--noise-ratio", type=float, default=_SYNTHETIC_ONLY_DEFAULTS["noise_ratio"],
+                        help="Fraction of each item's chunks that are noise (0..1). "
+                             "Mutually exclusive with --dataset.")
+    parser.add_argument("--chunks-per-item", type=int, default=_SYNTHETIC_ONLY_DEFAULTS["chunks_per_item"],
+                        help="Mutually exclusive with --dataset.")
+    parser.add_argument("--dup-rate", type=float, default=_SYNTHETIC_ONLY_DEFAULTS["dup_rate"],
+                        help="Probability of injecting a near-duplicate relevant chunk. "
+                             "Mutually exclusive with --dataset.")
+    parser.add_argument("--seed", type=int, default=_SYNTHETIC_ONLY_DEFAULTS["seed"],
+                        help="Mutually exclusive with --dataset.")
+    parser.add_argument("--prompt-style", default=_SYNTHETIC_ONLY_DEFAULTS["prompt_style"],
+                        help="Synthetic dataset prompt-style profile: qa_short (default), "
+                             "long_document, code, structured, multilingual, multi_turn, "
+                             "adversarial_noise. See contextops_bench.curator_bench."
+                             "PROMPT_STYLES. Mutually exclusive with --dataset.")
+    parser.add_argument("--embedder", default=_SYNTHETIC_ONLY_DEFAULTS["embedder"],
+                        choices=["none", "tfidf", "openai"],
+                        help="Compute REAL similarity scores for the synthetic dataset "
+                             "instead of synthetic random ranges: 'tfidf' (offline, free) "
+                             "or 'openai' (requires OPENAI_API_KEY, costs a small amount "
+                             "per run). Default 'none' keeps the original synthetic "
+                             "similarity ranges. Mutually exclusive with --dataset (real "
+                             "data already has its own similarity scores).")
+    parser.add_argument("--dataset", default=None, type=Path,
+                        help="Path to a JSON file of real/production dataset items "
+                             "(list of {query, expected?, chunks:[{text,similarity,...}]}) "
+                             "instead of generating a synthetic dataset — see "
+                             "contextops_bench.curator_bench.load_curation_dataset. "
+                             "Mutually exclusive with --noise-ratio/--chunks-per-item/"
+                             "--dup-rate/--seed/--prompt-style/--embedder.")
     parser.add_argument("--threshold", type=float, default=0.6,
                         help="curate() strict cutoff score")
     parser.add_argument("--dedup-threshold", type=float, default=0.9,
@@ -360,6 +398,67 @@ def _select_curator_judge(
     return _ClientAsJudge(client), label
 
 
+def _check_dataset_mutual_exclusivity(
+    *, dataset: Path | None, noise_ratio: float, chunks_per_item: int,
+    dup_rate: float, seed: int, prompt_style: str, embedder: str,
+) -> None:
+    """`--dataset` (real production data, own similarity scores) is
+    mutually exclusive with every synthetic-generator-only flag. Raises
+    `ValueError` naming exactly which flags were explicitly overridden,
+    rather than silently ignoring them — a silently-ignored `--embedder`
+    in particular would otherwise look like it worked while quietly never
+    touching the user's real similarity scores.
+    """
+    if dataset is None:
+        return
+    provided = {
+        "noise_ratio": noise_ratio, "chunks_per_item": chunks_per_item,
+        "dup_rate": dup_rate, "seed": seed, "prompt_style": prompt_style,
+        "embedder": embedder,
+    }
+    flag_names = {
+        "noise_ratio": "--noise-ratio", "chunks_per_item": "--chunks-per-item",
+        "dup_rate": "--dup-rate", "seed": "--seed", "prompt_style": "--prompt-style",
+        "embedder": "--embedder",
+    }
+    overrides = [
+        flag_names[key] for key, value in provided.items()
+        if value != _SYNTHETIC_ONLY_DEFAULTS[key]
+    ]
+    if overrides:
+        raise ValueError(
+            f"--dataset is mutually exclusive with: {', '.join(overrides)}. "
+            "--dataset supplies its own real chunks/similarity/query text; "
+            "remove these synthetic-generator flags (or don't pass --dataset)."
+        )
+
+
+def _load_or_generate_curator_dataset(
+    *, dataset: Path | None, n: int, noise_ratio: float, chunks_per_item: int,
+    dup_rate: float, seed: int, prompt_style: str, embedder: str,
+) -> list:
+    """Resolve the curator bench's dataset: `load_curation_dataset(dataset)`
+    if `--dataset` was given, else `generate_curation_dataset(...)` with the
+    requested style/embedder. Pulled out of `curator()` for testability
+    (mirrors `_select_curator_judge`).
+    """
+    from contextops_bench.curator_bench import load_curation_dataset
+    from contextops_bench.embedders import get_embedder
+
+    _check_dataset_mutual_exclusivity(
+        dataset=dataset, noise_ratio=noise_ratio, chunks_per_item=chunks_per_item,
+        dup_rate=dup_rate, seed=seed, prompt_style=prompt_style, embedder=embedder,
+    )
+    if dataset is not None:
+        return load_curation_dataset(str(dataset))
+
+    embedder_obj = get_embedder(embedder) if embedder != "none" else None
+    return generate_curation_dataset(
+        n, noise_ratio=noise_ratio, chunks_per_item=chunks_per_item,
+        dup_rate=dup_rate, seed=seed, style=prompt_style, embedder=embedder_obj,
+    )
+
+
 def curator(args) -> int:
     """Bench the RAG curator: raw (uncurated) vs curated chunks on a real LLM,
     measuring token/cost savings AND answer-quality impact.
@@ -372,15 +471,21 @@ def curator(args) -> int:
         judge_model=args.judge_model,
     )
 
+    dataset_desc = f"dataset={args.dataset}" if args.dataset else (
+        f"noise_ratio={args.noise_ratio}  style={args.prompt_style}  embedder={args.embedder}"
+    )
     print(f"[bench] curator: provider={args.provider}  model={model}  n={args.n}  "
-          f"noise_ratio={args.noise_ratio}  judge={judge_label}  max_tokens={args.max_tokens}")
+          f"{dataset_desc}  judge={judge_label}  max_tokens={args.max_tokens}")
 
-    items = generate_curation_dataset(
-        args.n,
+    items = _load_or_generate_curator_dataset(
+        dataset=args.dataset,
+        n=args.n,
         noise_ratio=args.noise_ratio,
         chunks_per_item=args.chunks_per_item,
         dup_rate=args.dup_rate,
         seed=args.seed,
+        prompt_style=args.prompt_style,
+        embedder=args.embedder,
     )
     config = CuratorConfig(threshold=args.threshold, dedup_threshold=args.dedup_threshold)
     metrics = [m.strip() for m in args.metrics.split(",") if m.strip()]

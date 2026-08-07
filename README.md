@@ -398,6 +398,30 @@ python -m contextops_bench curator --provider ollama --model llama3.1:8b \
     --n 50 --noise-ratio 0.7 --metrics relevance,completeness
 # --litellm-judge opts into a separate litellm-compatible judge credential
 # instead of self-judging; --max-tokens controls answer length (default 200).
+
+# --prompt-style diversifies the synthetic dataset beyond short fact Q&A:
+# qa_short (default), long_document, code, structured, multilingual,
+# multi_turn, adversarial_noise (see contextops_bench.curator_bench.PROMPT_STYLES).
+python -m contextops_bench curator --provider echo --echo-judge --n 20 \
+    --prompt-style adversarial_noise
+
+# --embedder computes REAL cosine similarity (query vs chunk) instead of the
+# default synthetic uniform-range similarity: 'tfidf' (offline, free) or
+# 'openai' (requires OPENAI_API_KEY, costs a small amount per run).
+# IMPORTANT: TF-IDF/embedding cosine similarity is on a much lower numeric
+# scale than the default synthetic range (0.03-0.15 typical vs. 0.10-0.98) —
+# lower --threshold/--dedup-threshold accordingly, or the default 0.6
+# threshold will drop everything.
+python -m contextops_bench curator --provider echo --echo-judge --n 20 \
+    --embedder tfidf --threshold 0.05
+
+# --dataset ingests real production data instead of generating synthetic
+# data: a JSON file, list of {query, expected?, chunks:[{text,similarity,...}]}
+# (same chunk schema as `contextops curate --chunks`). Mutually exclusive
+# with --noise-ratio/--chunks-per-item/--dup-rate/--seed/--prompt-style/
+# --embedder (real data already has its own similarity scores).
+python -m contextops_bench curator --provider echo --echo-judge \
+    --dataset my_production_export.json
 ```
 
 **About `--preset-agent`:** the bench needs a stable system prompt + tool schema + role across all calls for cache hits to be non-zero. `--preset-agent realistic` pins all three. On cache-bearing providers (OpenRouter + the four `direct_*`), the bench auto-applies `realistic` if you don't pass a preset — with a loud warning explaining why. Use `--preset-agent none` to opt out and use randomized prompts.
@@ -419,7 +443,7 @@ See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for the formal pass criteria.
 - ✅ **v0.1** — reorder, token count, SQLite logger, CLI
 - ✅ **v0.2** — LLM-as-judge eval + A/B testing + dataset loaders
 - ✅ **v0.3** — realistic-preset cache-key regression fix + direct providers (Anthropic / Zen / OpenAI / Gemini) + CI bench regression gate + safety-net auto-default on cache-bearing providers + deterministic bench quality gates (confidence scoring, error classification, run timestamps). See [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md).
-- ✅ **v0.4** — RAG curator (multi-signal retrieval + strict threshold) + real-LLM bench (raw vs curated: token/cost + answer-quality impact) + public dashboard integration
+- ✅ **v0.4** — RAG curator (multi-signal retrieval + strict threshold) + real-LLM bench (raw vs curated: token/cost + answer-quality impact) + public dashboard integration + hardened curator testing (property-based fuzzing, diverse prompt styles, pluggable real-embedding similarity, production-data ingestion)
 - 🔜 **v1.0** — Access-aware context + audit trail (on-prem / enterprise)
 
 See [`ROADMAP.md`](ROADMAP.md) for a detailed, implementation-ready breakdown of every upcoming track (RAG curator, access-aware context, bench/dashboard maturity, new providers/metrics) — written to be actionable for a junior engineer picking up any item.

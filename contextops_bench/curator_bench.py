@@ -15,11 +15,13 @@ only the low-level LLM client plumbing (`client.complete()`), not
 
 from __future__ import annotations
 
+import json as jsonlib
 import random
 import statistics
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional
 
 from contextops.curator import (
     CurationResult,
@@ -31,6 +33,7 @@ from contextops.curator import (
 from contextops.judge import JudgeClient, score_many
 from contextops.models import Prompt
 from contextops.report import a_b_compare
+from contextops_bench.embedders import Embedder, cosine_similarity
 from contextops_bench.stats import bootstrap_ci, effect_size_pct
 
 # A quality-gate run needs at least this many paired (raw, curated) items
@@ -92,6 +95,184 @@ NOISE_CHUNKS: list[str] = [
     "The novel's long-awaited sequel is expected to release next spring.",
 ]
 
+# --- Additional prompt-style profiles (Track A hardening) ----------------
+# Each style stresses a different real-world RAG shape. `generate_curation_
+# dataset(..., style=...)` picks facts/noise from these instead of the
+# default qa_short (FACTS/NOISE_CHUNKS) pair. "multi_turn" and
+# "adversarial_noise" are query/noise *transforms* over qa_short rather
+# than separate content sets — see `_apply_style_transform`.
+
+_LONG_PARAGRAPH_FACTS: list[tuple[str, str, str]] = [
+    ("What causes ocean tides?", "the gravitational pull of the moon and sun",
+     "Ocean tides are caused primarily by the gravitational pull of the moon, with a "
+     "secondary contribution from the sun. As the moon orbits Earth, its gravity pulls "
+     "on the water directly beneath it, creating a bulge. A second bulge forms on the "
+     "opposite side of the planet because the moon's pull is weaker there than at "
+     "Earth's center, and inertia causes water to lag behind. As Earth rotates through "
+     "these two bulges roughly every 24 hours, most coastal locations experience two "
+     "high tides and two low tides per day. The sun's gravity also affects tides, but "
+     "because it is so much farther away, its effect is about 46 percent of the moon's. "
+     "When the sun, moon, and Earth align during a full or new moon, their combined pull "
+     "produces unusually high 'spring tides'; when the sun and moon pull at right angles "
+     "during quarter moons, the result is smaller 'neap tides'. Local coastline shape, "
+     "ocean floor depth, and prevailing weather can further amplify or dampen the "
+     "predicted tidal range at any given port."),
+    ("How does photosynthesis work?", "plants convert light energy into chemical energy",
+     "Photosynthesis is the process by which green plants, algae, and some bacteria "
+     "convert light energy into chemical energy stored in glucose. It occurs mainly in "
+     "the chloroplasts of plant cells, using a pigment called chlorophyll that absorbs "
+     "light most efficiently in the blue and red wavelengths while reflecting green, "
+     "which is why most plants appear green. The process has two main stages: the "
+     "light-dependent reactions, which take place in the thylakoid membranes and split "
+     "water molecules to release oxygen while generating ATP and NADPH; and the "
+     "light-independent reactions, known as the Calvin cycle, which take place in the "
+     "stroma and use that ATP and NADPH to fix carbon dioxide into glucose. The overall "
+     "chemical equation is six molecules of carbon dioxide plus six molecules of water, "
+     "in the presence of light energy, yielding one molecule of glucose and six "
+     "molecules of oxygen. This oxygen is released as a byproduct and is the primary "
+     "source of atmospheric oxygen that most life on Earth depends on for respiration."),
+]
+_LONG_PARAGRAPH_NOISE: list[str] = [
+    "The city council spent the entirety of Tuesday's session debating a proposed "
+    "zoning change for the old warehouse district near the river. Several residents "
+    "spoke in favor of converting the space into mixed-use housing, citing the "
+    "shortage of affordable units downtown, while a handful of small business owners "
+    "argued that the change would drive up commercial rents and push out the light "
+    "manufacturing tenants who currently occupy the buildings. No vote was taken; "
+    "the matter was tabled until the planning commission can complete an independent "
+    "traffic and infrastructure impact study, expected to take at least three months. "
+    "In the meantime, the council approved a temporary moratorium on new demolition "
+    "permits in the affected blocks so that no further changes to the district's "
+    "character can happen before the study is complete and public comment reopens.",
+    "This year's regional chess championship drew a record number of entrants, with "
+    "over four hundred players competing across the open, junior, and senior "
+    "divisions over the course of a grueling nine-round weekend tournament. The "
+    "eventual open-division winner, a nineteen-year-old university student, remained "
+    "undefeated throughout and clinched the title with a dramatic endgame victory in "
+    "the final round against the top-seeded grandmaster. Organizers credited a new "
+    "digital pairing system for keeping the event running smoothly despite the larger "
+    "field, and several parents in the junior section praised the newly added "
+    "beginner-friendly side events, which let younger and less experienced players "
+    "get tournament experience without facing elimination pressure in the main draw.",
+]
+
+_CODE_FACTS: list[tuple[str, str, str]] = [
+    ("What does the is_prime function return for 1?", "False",
+     "def is_prime(n):\n    if n < 2:\n        return False\n    for i in range(2, int(n ** 0.5) + 1):\n        if n % i == 0:\n            return False\n    return True"),
+    ("What does the debounce decorator do?", "delays calling the wrapped function until calls stop for `wait` seconds",
+     "def debounce(wait):\n    def decorator(fn):\n        timer = None\n        def wrapped(*args, **kwargs):\n            nonlocal timer\n            if timer:\n                timer.cancel()\n            timer = threading.Timer(wait, fn, args, kwargs)\n            timer.start()\n        return wrapped\n    return decorator"),
+]
+_CODE_NOISE: list[str] = [
+    "def format_currency(amount, symbol='$'):\n    return f\"{symbol}{amount:,.2f}\"",
+    "class RetryPolicy:\n    def __init__(self, max_attempts=3, backoff=1.5):\n        self.max_attempts = max_attempts\n        self.backoff = backoff",
+    "SELECT customer_id, SUM(total) FROM orders GROUP BY customer_id HAVING SUM(total) > 1000;",
+    "func Reverse(s string) string {\n\trunes := []rune(s)\n\tfor i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {\n\t\trunes[i], runes[j] = runes[j], runes[i]\n\t}\n\treturn string(runes)\n}",
+]
+
+_STRUCTURED_FACTS: list[tuple[str, str, str]] = [
+    ('What is the "status" field for order ord_4471?', "shipped",
+     '{"order_id": "ord_4471", "status": "shipped", "carrier": "UPS", "eta_days": 2}'),
+    ('What is the max_retries setting in the config?', "5",
+     '{"service": "billing-worker", "max_retries": 5, "timeout_ms": 3000, "queue": "billing-high"}'),
+]
+_STRUCTURED_NOISE: list[str] = [
+    '{"event": "user_signup", "plan": "free", "region": "eu-west-1", "referrer": "organic"}',
+    '{"metric": "cpu_utilization", "host": "worker-07", "value": 0.42, "unit": "ratio"}',
+    '{"ticket_id": "T-2291", "priority": "low", "assignee": null, "tags": ["billing", "follow-up"]}',
+]
+
+_MULTILINGUAL_FACTS: list[tuple[str, str, str]] = [
+    ("¿Cuál es la capital de España?", "Madrid", "Madrid es la capital de España."),
+    ("Nihon no shuto wa doko desu ka?", "Tokyo", "Nihon no shuto wa Tokyo desu."),
+    ("Quelle est la capitale de l'Italie?", "Rome", "Rome est la capitale de l'Italie."),
+]
+_MULTILINGUAL_NOISE: list[str] = [
+    "El mercado de valores subió hoy debido al optimismo de los inversores.",
+    "Kyou wa ii tenki desu ne, sanpo ni ikimashou.",
+    "Le musée présente une nouvelle exposition d'art moderne ce mois-ci.",
+]
+
+# Per-fact adversarial decoys for `style="adversarial_noise"`: lexically
+# close to the query/relevant fact (share keywords) but factually wrong or
+# off-target — the hard case where a similarity-threshold-only filter can't
+# separate signal from a lookalike, keyed by the exact query string in FACTS.
+_ADVERSARIAL_DECOYS: dict[str, list[str]] = {
+    "What is the capital of France?": [
+        "Lyon is the second-largest city in France, known for its cuisine.",
+        "France borders Germany, Spain, Italy, and several other countries.",
+    ],
+    "What is the capital of Japan?": [
+        "Osaka is a major port city in Japan, famous for its food culture.",
+        "Japan is an island nation located in East Asia.",
+    ],
+    "What is the boiling point of water at sea level?": [
+        "Water boils at a lower temperature at higher altitudes due to lower pressure.",
+        "The freezing point of water is 0 degrees Celsius at sea level.",
+    ],
+    "Who wrote Romeo and Juliet?": [
+        "Christopher Marlowe was a contemporary playwright of Shakespeare's era.",
+        "Romeo and Juliet has been adapted into dozens of films and stage productions.",
+    ],
+    "What is the largest planet in the solar system?": [
+        "Saturn is the second-largest planet in the solar system, known for its rings.",
+        "Jupiter has dozens of known moons, including four large Galilean moons.",
+    ],
+    "What is the chemical symbol for gold?": [
+        "Silver's chemical symbol is Ag, derived from the Latin word argentum.",
+        "Gold is a dense, soft, and highly malleable precious metal.",
+    ],
+    "How many continents are there on Earth?": [
+        "Some geography models group Europe and Asia together as Eurasia.",
+        "Antarctica is the coldest and driest continent on Earth.",
+    ],
+    "What language is spoken in Brazil?": [
+        "Spanish is spoken across most of South America outside of Brazil.",
+        "Brazil is the largest country in South America by land area.",
+    ],
+    "What is the tallest mountain on Earth?": [
+        "Mauna Kea is taller than Everest when measured from its base on the ocean floor.",
+        "K2 is the second-highest mountain on Earth, located in the Karakoram range.",
+    ],
+    "What is the currency of Japan?": [
+        "The South Korean won is the official currency of South Korea, not Japan.",
+        "Japan's economy is the third-largest in the world by nominal GDP.",
+    ],
+    "Who painted the Mona Lisa?": [
+        "Michelangelo painted the ceiling of the Sistine Chapel during the Renaissance.",
+        "The Mona Lisa is displayed at the Louvre Museum in Paris.",
+    ],
+    "What is the largest ocean on Earth?": [
+        "The Atlantic Ocean is the second-largest ocean, bordering the Americas and Europe.",
+        "The Mariana Trench, the deepest point on Earth, lies in the Pacific Ocean.",
+    ],
+    "What gas do plants absorb from the atmosphere?": [
+        "Plants release oxygen into the atmosphere as a byproduct of photosynthesis.",
+        "Animals absorb oxygen and release carbon dioxide during respiration.",
+    ],
+    "What is the freezing point of water in Celsius?": [
+        "Water's boiling point is 100 degrees Celsius at standard atmospheric pressure.",
+        "Salt water has a lower freezing point than pure fresh water.",
+    ],
+    "What is the smallest prime number?": [
+        "1 is neither prime nor composite by mathematical convention.",
+        "The number 3 is the smallest odd prime number.",
+    ],
+}
+
+PROMPT_STYLES: dict[str, dict[str, list]] = {
+    "qa_short": {"facts": FACTS, "noise": NOISE_CHUNKS},
+    "long_document": {"facts": _LONG_PARAGRAPH_FACTS, "noise": _LONG_PARAGRAPH_NOISE},
+    "code": {"facts": _CODE_FACTS, "noise": _CODE_NOISE},
+    "structured": {"facts": _STRUCTURED_FACTS, "noise": _STRUCTURED_NOISE},
+    "multilingual": {"facts": _MULTILINGUAL_FACTS, "noise": _MULTILINGUAL_NOISE},
+    # Transform styles reuse qa_short's facts, applied via
+    # `_apply_style_transform` after item construction.
+    "multi_turn": {"facts": FACTS, "noise": NOISE_CHUNKS},
+    "adversarial_noise": {"facts": FACTS, "noise": NOISE_CHUNKS},
+}
+
+ALL_PROMPT_STYLES: list[str] = list(PROMPT_STYLES.keys())
+
 
 @dataclass
 class CurationBenchItem:
@@ -109,19 +290,53 @@ def generate_curation_dataset(
     chunks_per_item: int = 6,
     dup_rate: float = 0.15,
     seed: int = 42,
+    style: str = "qa_short",
+    embedder: Optional["Embedder"] = None,
 ) -> list[CurationBenchItem]:
     """Deterministic synthetic dataset for benching the curator.
 
-    Each item mixes a relevant chunk (high `similarity`, drawn from `FACTS`)
-    with noise chunks (low `similarity`, drawn from `NOISE_CHUNKS`) at
+    Each item mixes a relevant chunk (high `similarity`, drawn from the
+    chosen `style`'s facts) with noise chunks (low `similarity`) at
     `noise_ratio`, and occasionally injects a near-duplicate of the relevant
     chunk (at `dup_rate`) to exercise `curate()`'s dedup path. Fully
     reproducible given the same `seed`.
+
+    `style` selects a prompt-style profile from `PROMPT_STYLES`
+    (`"qa_short"` default — short fact Q&A; see module docstring section on
+    prompt-style profiles for `"long_document"`, `"code"`, `"structured"`,
+    `"multilingual"`, `"multi_turn"`, `"adversarial_noise"`).
+
+    `embedder`, if given, overrides the default synthetic
+    `rng.uniform(...)` similarity ranges with real cosine similarity
+    between the query and each chunk's text (see
+    `contextops_bench.embedders`) — closer to what a real vector-search
+    retriever would report, at the cost of an embedding call per chunk.
     """
+    if style not in PROMPT_STYLES:
+        raise ValueError(f"Unknown style: {style!r}. Available: {ALL_PROMPT_STYLES}")
+    facts = PROMPT_STYLES[style]["facts"]
+    default_noise_pool = PROMPT_STYLES[style]["noise"]
+
     rng = random.Random(seed)
     items: list[CurationBenchItem] = []
     for _ in range(n):
-        query, expected, relevant_text = rng.choice(FACTS)
+        query, expected, relevant_text = rng.choice(facts)
+        display_query = query
+        if style == "multi_turn":
+            # Fabricated short conversation prefix — tests that curate()/the
+            # bench plumbing handle structured, multi-line query text rather
+            # than a single clean question.
+            display_query = (
+                "User: Can you help me with something?\n"
+                "Assistant: Of course, what would you like to know?\n"
+                f"User: {query}"
+            )
+        noise_pool = default_noise_pool
+        if style == "adversarial_noise":
+            # Lexically-close decoys for THIS query if we have them, else
+            # fall back to generic unrelated noise.
+            noise_pool = _ADVERSARIAL_DECOYS.get(query, default_noise_pool)
+
         n_noise = max(0, round(chunks_per_item * noise_ratio))
         n_relevant = max(1, chunks_per_item - n_noise)
 
@@ -129,7 +344,7 @@ def generate_curation_dataset(
         for _ in range(n_relevant):
             chunks.append(DocumentChunk(text=relevant_text, similarity=rng.uniform(0.80, 0.98)))
         for _ in range(n_noise):
-            noise_text = rng.choice(NOISE_CHUNKS)
+            noise_text = rng.choice(noise_pool)
             chunks.append(DocumentChunk(text=noise_text, similarity=rng.uniform(0.10, 0.50)))
 
         if rng.random() < dup_rate:
@@ -138,7 +353,59 @@ def generate_curation_dataset(
             chunks.append(DocumentChunk(text=relevant_text, similarity=rng.uniform(0.75, 0.95)))
 
         rng.shuffle(chunks)
-        items.append(CurationBenchItem(query=query, expected=expected, chunks=chunks))
+
+        if embedder is not None:
+            _assign_embedded_similarity(embedder, display_query, chunks)
+
+        items.append(CurationBenchItem(query=display_query, expected=expected, chunks=chunks))
+    return items
+
+
+def _assign_embedded_similarity(embedder: "Embedder", query: str, chunks: list[DocumentChunk]) -> None:
+    """Overwrite each chunk's `.similarity` in place with real cosine
+    similarity to `query`, computed via `embedder`. One `embed()` call for
+    the whole batch (query + all chunk texts) so embedder implementations
+    can batch their API/compute calls.
+    """
+    if not chunks:
+        return
+    texts = [query] + [c.text for c in chunks]
+    vectors = embedder.embed(texts)
+    query_vec, chunk_vecs = vectors[0], vectors[1:]
+    for chunk, vec in zip(chunks, chunk_vecs):
+        chunk.similarity = cosine_similarity(query_vec, vec)
+
+
+def load_curation_dataset(path: str) -> list[CurationBenchItem]:
+    """Load a production/real-data dataset for the curator bench, instead of
+    the synthetic `generate_curation_dataset()` generator.
+
+    Expects a JSON file: a list of objects
+    `{"query": str, "expected": str? (default ""), "chunks": [...]}`, where
+    each chunk is `{"text": str, "similarity": float, "updated_at": float?,
+    "trust_score": float?}` — the SAME chunk schema as `contextops curate
+    --chunks` (see `contextops/cli.py`), so a real RAG pipeline's retrieved
+    chunks (with your own similarity scores) can be exported once and reused
+    here for a one-off production validation run.
+
+    `expected` is optional because not every production RAG dataset has a
+    ground-truth answer on hand; judge metrics that rely on it (e.g.
+    `completeness`) degrade gracefully to comparing against an empty string,
+    same as any other item with no `expected` — this mirrors how
+    `contextops.judge.score_one` already handles an empty `expected`.
+    """
+    raw_items = jsonlib.loads(Path(path).read_text())
+    if not isinstance(raw_items, list):
+        raise ValueError(f"{path}: expected a JSON list of dataset items, got {type(raw_items).__name__}")
+
+    items: list[CurationBenchItem] = []
+    for i, raw in enumerate(raw_items):
+        if "query" not in raw or "chunks" not in raw:
+            raise ValueError(f"{path}: item {i} missing required 'query' and/or 'chunks' field")
+        chunks = [DocumentChunk(**c) for c in raw["chunks"]]
+        items.append(CurationBenchItem(
+            query=raw["query"], expected=raw.get("expected", ""), chunks=chunks,
+        ))
     return items
 
 
