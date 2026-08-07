@@ -13,10 +13,13 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from contextops.curator import CuratorConfig
+from contextops.judge import JudgeClient
 from contextops_bench.clients import get_client
 from contextops_bench.curator_bench import (
+    _ClientAsJudge,
     generate_curation_dataset,
     render_curator_summary,
     run_curator_bench,
@@ -302,39 +305,75 @@ def _add_curator_args(parser: argparse.ArgumentParser) -> None:
                         help="curate() Jaccard dedup threshold")
     parser.add_argument("--metrics", default="relevance,completeness",
                         help="Comma-separated judge metrics")
-    parser.add_argument("--judge-model", default="gpt-4o-mini",
-                        help="Model used as judge (ignored if --echo-judge)")
+    parser.add_argument("--max-tokens", type=int, default=200,
+                        help="Max tokens for the LLM-under-test's answers. Short answers "
+                             "starve both the judge and context_precision of signal.")
+    parser.add_argument("--judge-model", default=None,
+                        help="Model used to judge. Defaults to the same model as --model "
+                             "(self-judging). Can point at a DIFFERENT model on the same "
+                             "provider (e.g. a stronger sibling model) to partially reduce "
+                             "self-judging bias without needing a separate API key. "
+                             "Ignored if --echo-judge or --litellm-judge is set.")
     parser.add_argument("--echo-judge", action="store_true",
                         help="Use offline echo judge for scoring (no judge API calls). "
                              "Independent of --provider — you can bench a real LLM "
                              "under test while still using a free/offline judge.")
+    parser.add_argument("--litellm-judge", action="store_true",
+                        help="Use LiteLLMJudge (requires a separate litellm-compatible "
+                             "credential, e.g. OPENAI_API_KEY) instead of self-judging "
+                             "via the same client/key as --provider.")
+
+
+def _select_curator_judge(
+    *, client: Any, model: str, provider: str,
+    echo_judge: bool, litellm_judge: bool, judge_model: str | None,
+) -> tuple[JudgeClient, str]:
+    """Pick the `JudgeClient` + human-readable label for the curator bench.
+
+    Precedence: `--echo-judge` > `--litellm-judge` > provider=="echo"
+    fallback > default self-judging via `_ClientAsJudge(client)`. Pulled
+    out of `curator()` so it's independently unit-testable without a
+    real network call or argparse plumbing.
+    """
+    from contextops.clients import EchoJudge, LiteLLMJudge
+
+    resolved_judge_model = judge_model or model
+
+    if echo_judge:
+        return EchoJudge(), "echo"
+    if litellm_judge:
+        try:
+            return LiteLLMJudge(), f"litellm:{resolved_judge_model}"
+        except RuntimeError:
+            print("[bench] litellm not installed — falling back to offline EchoJudge. "
+                  "Install with: pip install 'contextops[integrations]'")
+            return EchoJudge(), "echo (fallback)"
+    if provider == "echo":
+        # Self-judging against EchoClient's fixed "echo" text is meaningless
+        # (every response is identical) — fall back to the offline judge.
+        return EchoJudge(), "echo"
+    # Default: self-judge using the SAME real client/key already configured
+    # for the LLM-under-test. --judge-model can point at a different model
+    # on the same provider to partially reduce self-judging bias without a
+    # separate credential.
+    label = "self" if resolved_judge_model == model else f"self:{resolved_judge_model}"
+    return _ClientAsJudge(client), label
 
 
 def curator(args) -> int:
     """Bench the RAG curator: raw (uncurated) vs curated chunks on a real LLM,
     measuring token/cost savings AND answer-quality impact.
     """
-    from contextops.clients import EchoJudge, LiteLLMJudge
-    from contextops.judge import JudgeClient
-
     client, model = _make_client_and_model(args)
-
-    judge: JudgeClient
-    if args.echo_judge:
-        judge = EchoJudge()
-        judge_label = "echo"
-    else:
-        try:
-            judge = LiteLLMJudge()
-            judge_label = args.judge_model
-        except RuntimeError:
-            print("[bench] litellm not installed — falling back to offline EchoJudge. "
-                  "Install with: pip install 'contextops[integrations]'")
-            judge = EchoJudge()
-            judge_label = "echo (fallback)"
+    judge_model = args.judge_model or model
+    judge, judge_label = _select_curator_judge(
+        client=client, model=model, provider=args.provider,
+        echo_judge=args.echo_judge, litellm_judge=args.litellm_judge,
+        judge_model=args.judge_model,
+    )
 
     print(f"[bench] curator: provider={args.provider}  model={model}  n={args.n}  "
-          f"noise_ratio={args.noise_ratio}  judge={judge_label}")
+          f"noise_ratio={args.noise_ratio}  judge={judge_label}  max_tokens={args.max_tokens}")
 
     items = generate_curation_dataset(
         args.n,
@@ -353,8 +392,10 @@ def curator(args) -> int:
         judge=judge,
         metrics=metrics,
         config=config,
-        judge_model=args.judge_model,
+        judge_model=judge_model,
         max_workers=args.parallel,
+        max_tokens=args.max_tokens,
+        judge_label=judge_label,
     )
 
     label = args.label or f"curator_{args.provider}"

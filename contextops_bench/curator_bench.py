@@ -31,6 +31,12 @@ from contextops.curator import (
 from contextops.judge import JudgeClient, score_many
 from contextops.models import Prompt
 from contextops.report import a_b_compare
+from contextops_bench.stats import bootstrap_ci, effect_size_pct
+
+# A quality-gate run needs at least this many paired (raw, curated) items
+# to be considered adequately powered — same threshold as the cache-hit-rate
+# gate in contextops_bench/quality.py, for consistency across bench modes.
+QUALITY_MIN_N = 20
 
 # (query, expected_answer, relevant_chunk_text) — simple, checkable facts.
 FACTS: list[tuple[str, str, str]] = [
@@ -158,6 +164,115 @@ def _complete_text(client: Any, *, model: str, prompt_str: str, max_tokens: int 
     }
 
 
+class _ClientAsJudge:
+    """Adapts any bench client (`BaseHTTPClient`/`EchoClient`/anything with a
+    `.complete()` returning `CompletionResponse`) to the `JudgeClient`
+    protocol (`complete(*, model, messages, temperature=0.0) -> str`).
+
+    Lets the curator bench self-judge using the SAME real API key/client
+    already configured for the LLM-under-test — no separate judge
+    credentials required. Known limitation: self-judging bias (a model
+    grading its own or a sibling model's answers) — see the `[JUDGE]` line
+    `render_curator_summary()` prints when this adapter is used.
+    """
+
+    def __init__(self, client: Any, *, max_tokens: int = 150):
+        self._client = client
+        self._max_tokens = max_tokens
+
+    def complete(self, *, model: str, messages: list[dict], temperature: float = 0.0) -> str:
+        # `contextops.judge._build_messages()` always emits a leading
+        # {"role": "system", ...} message. Anthropic-native clients (Zen,
+        # direct_anthropic, direct_google — anything with
+        # `supports_split_messages=True`, mirroring `runner.py`'s handling)
+        # reject a "system" role inside `messages` with HTTP 400; they
+        # require system content via a separate `system=` kwarg instead.
+        kwargs: dict = {}
+        if getattr(self._client, "supports_split_messages", False) and messages and messages[0]["role"] == "system":
+            kwargs["system"] = messages[0]["content"]
+            messages = messages[1:]
+        resp = self._client.complete(
+            model=model, messages=messages, temperature=temperature, max_tokens=self._max_tokens, **kwargs,
+        )
+        return resp.text
+
+
+def evaluate_curator_quality_gate(
+    raw_scores: list[dict],
+    curated_scores: list[dict],
+    *,
+    min_n: int = QUALITY_MIN_N,
+) -> dict:
+    """Statistical significance gate on the curator bench's judge-metric
+    deltas — mirrors `contextops_bench.quality.evaluate_quality_gate`'s
+    bootstrap-CI approach, applied per metric.
+
+    `raw_scores`/`curated_scores` are `score_many()` outputs: each entry has
+    `"metric"`, `"score"`, and `"index"` (the dataset item index). Entries
+    are paired by `(metric, index)` to build per-item diff arrays, since
+    `score_many()` always returns results ordered by
+    `(response_index, metric_index)` regardless of `max_workers`.
+
+    Returns `{"n", "min_n", "low_n", "verified", "significant_metrics",
+    "reasons", "per_metric": {metric: {"ci_low", "ci_high", "significant",
+    "effect_size_pct"}}}`.
+    """
+    by_metric_raw: dict[str, dict[int, float]] = {}
+    by_metric_curated: dict[str, dict[int, float]] = {}
+    for s in raw_scores:
+        by_metric_raw.setdefault(s["metric"], {})[s["index"]] = s["score"]
+    for s in curated_scores:
+        by_metric_curated.setdefault(s["metric"], {})[s["index"]] = s["score"]
+
+    metrics = sorted(set(by_metric_raw) | set(by_metric_curated))
+    per_metric: dict[str, dict] = {}
+    significant_metrics: list[str] = []
+    n = 0
+
+    for metric in metrics:
+        raw_by_idx = by_metric_raw.get(metric, {})
+        curated_by_idx = by_metric_curated.get(metric, {})
+        shared_idx = sorted(set(raw_by_idx) & set(curated_by_idx))
+        raw_list = [raw_by_idx[i] for i in shared_idx]
+        curated_list = [curated_by_idx[i] for i in shared_idx]
+        n = max(n, len(shared_idx))
+
+        if not shared_idx:
+            per_metric[metric] = {
+                "ci_low": None, "ci_high": None, "significant": False, "effect_size_pct": 0.0,
+            }
+            continue
+
+        diffs = [c - r for r, c in zip(raw_list, curated_list)]
+        ci_low, ci_high = bootstrap_ci(diffs, seed=0)
+        significant = not (ci_low <= 0 <= ci_high)
+        if significant:
+            significant_metrics.append(metric)
+        per_metric[metric] = {
+            "ci_low": ci_low,
+            "ci_high": ci_high,
+            "significant": significant,
+            "effect_size_pct": effect_size_pct(curated_list, raw_list),
+        }
+
+    low_n = n < min_n
+    reasons: list[str] = []
+    if low_n:
+        reasons.append(f"n={n} < min_n={min_n}")
+    if n and not significant_metrics:
+        reasons.append("no metric's 95% CI excludes zero — no statistically significant quality delta")
+
+    return {
+        "n": n,
+        "min_n": min_n,
+        "low_n": low_n,
+        "verified": (not low_n) and bool(significant_metrics),
+        "significant_metrics": significant_metrics,
+        "reasons": reasons,
+        "per_metric": per_metric,
+    }
+
+
 def _stats(records: list[dict], precisions: list[float]) -> dict:
     """Aggregate one arm's per-call records + context_precision scores."""
     if not records:
@@ -187,6 +302,8 @@ def run_curator_bench(
     config: CuratorConfig | None = None,
     judge_model: str = "gpt-4o-mini",
     max_workers: int = 1,
+    max_tokens: int = 200,
+    judge_label: str = "echo",
 ) -> dict:
     """Run every item through both arms (raw vs curated chunks), score, aggregate.
 
@@ -194,10 +311,17 @@ def run_curator_bench(
     "curated" = only `curate(item.chunks, config).kept` joined into `documents`.
     Both arms share the same `query`/`model` and are sent to the same `client`.
 
+    `max_tokens` controls the LLM-under-test's answer length (default 200 —
+    short answers starve both the judge and `context_precision`'s n-gram
+    heuristic of signal). `judge_label` is a free-form string describing the
+    judge (`"echo"`, `"self"`, `"litellm:<model>"`, ...) stored in the summary
+    for transparency — see `render_curator_summary`'s `[JUDGE]` line.
+
     Returns a summary dict: `{"provider", "model", "n", "raw", "curated",
-    "quality", "curation", "delta"}` — see `render_curator_summary` for the
-    human-readable rendering and `scripts/generate_dashboard.py` for how this
-    shape feeds the public dashboard.
+    "quality", "quality_gate", "curation", "delta", "judge"}` — see
+    `render_curator_summary` for the human-readable rendering and
+    `scripts/generate_dashboard.py` for how this shape feeds the public
+    dashboard.
     """
     config = config or CuratorConfig()
 
@@ -224,8 +348,12 @@ def run_curator_bench(
             model=model,
         )
 
-        raw_text, raw_stats = _complete_text(client, model=model, prompt_str=_render(raw_prompt))
-        curated_text, curated_stats = _complete_text(client, model=model, prompt_str=_render(curated_prompt))
+        raw_text, raw_stats = _complete_text(
+            client, model=model, prompt_str=_render(raw_prompt), max_tokens=max_tokens
+        )
+        curated_text, curated_stats = _complete_text(
+            client, model=model, prompt_str=_render(curated_prompt), max_tokens=max_tokens
+        )
 
         raw_records.append(raw_stats)
         curated_records.append(curated_stats)
@@ -253,15 +381,23 @@ def run_curator_bench(
     # a_b_compare(baseline, optimized) — "baseline" = raw, "optimized" = curated,
     # so delta = curated - raw (positive delta = curation helped quality).
     quality_deltas = a_b_compare(raw_scores, curated_scores)
+    quality_gate = evaluate_curator_quality_gate(raw_scores, curated_scores)
+    # Enrich each metric's a_b_compare entry with the gate's CI/significance/
+    # effect-size fields — additive, doesn't change the existing shape.
+    for metric, gate_info in quality_gate["per_metric"].items():
+        if metric in quality_deltas:
+            quality_deltas[metric].update(gate_info)
 
     summary: dict = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "provider": getattr(client, "PROVIDER", "unknown"),
         "model": model,
+        "judge": judge_label,
         "n": len(items),
         "raw": _stats(raw_records, raw_precisions),
         "curated": _stats(curated_records, curated_precisions),
         "quality": quality_deltas,
+        "quality_gate": quality_gate,
         "curation": {
             "mean_drop_rate": round(statistics.mean(drop_rates), 3) if drop_rates else 0.0,
             "total_dedup_drops": dedup_drop_count,
@@ -291,6 +427,15 @@ def render_curator_summary(summary: dict, label: str = "curator_bench") -> str:
         f"provider={summary.get('provider', '?')}  model={summary.get('model', '?')}  "
         f"n={summary.get('n', 0)}"
     )
+    judge_label = summary.get("judge", "")
+    if judge_label:
+        lines.append(f"judge={judge_label}")
+        if judge_label == "self" or judge_label.startswith("self:"):
+            lines.append(
+                "  [!] self-judged — the same model (or a sibling model on the same "
+                "provider) graded its own answers; results may be biased toward this "
+                "model's own answer style."
+            )
 
     for side in ("raw", "curated"):
         s = summary.get(side) or {}
@@ -321,9 +466,27 @@ def render_curator_summary(summary: dict, label: str = "curator_bench") -> str:
     if q:
         lines.append("\n[QUALITY] (judge deltas, curated vs raw)")
         for metric, delta in q.items():
+            ci_str = ""
+            if delta.get("ci_low") is not None:
+                sig = "significant" if delta.get("significant") else "not significant"
+                ci_str = (
+                    f"  95% CI=[{delta['ci_low']:+.3f}, {delta['ci_high']:+.3f}] ({sig}, "
+                    f"effect={delta.get('effect_size_pct', 0.0):+.1f}%)"
+                )
             lines.append(
                 f"  {metric:<16s} raw={delta['baseline_mean']:.3f}  "
-                f"curated={delta['optimized_mean']:.3f}  delta={delta['delta']:+.3f}"
+                f"curated={delta['optimized_mean']:.3f}  delta={delta['delta']:+.3f}{ci_str}"
             )
+
+    qg = summary.get("quality_gate") or {}
+    if qg:
+        lines.append("\n[QUALITY GATE]")
+        status = "PASS (verified)" if qg.get("verified") else "FAIL (unverified)"
+        lines.append(f"  status:              {status}")
+        lines.append(f"  n={qg.get('n', 0)}  min_n={qg.get('min_n', 0)}")
+        sig_metrics = qg.get("significant_metrics") or []
+        lines.append(f"  significant metrics: {', '.join(sig_metrics) or 'none'}")
+        for reason in qg.get("reasons", []):
+            lines.append(f"  - {reason}")
 
     return "\n".join(lines)

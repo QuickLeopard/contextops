@@ -47,6 +47,25 @@ a separate module reusing only the low-level LLM client plumbing. Results
 cache/cost charts. See `tests/test_curator_bench.py` and the extended
 `tests/test_dashboard_generator.py`.
 
+**Also implemented (robust quality-impact check, closing the initial gap
+where quality deltas were only ever measured with a fixed-score
+`EchoJudge`)**: `_ClientAsJudge` in `contextops_bench/curator_bench.py` lets
+the bench self-judge with the SAME real client/key already configured for
+the LLM-under-test — no separate judge credential required — replacing
+`EchoJudge` as the default whenever a real (non-`echo`) `--provider` is
+used. `evaluate_curator_quality_gate()` adds a bootstrap-CI significance
+check (paired by `(metric, index)`, reusing `contextops_bench.stats`) on
+top of the raw judge-metric means, so a quality claim only counts as
+`verified` when n>=20 AND at least one metric's 95% CI excludes zero — same
+bar as the cache-hit-rate gate in `contextops_bench/quality.py`. New CLI
+flags: `--max-tokens` (200, was a hardcoded 64 — short answers were
+starving both the judge and `context_precision` of signal), `--litellm-judge`
+(opt-in to a separate credential instead of self-judging), `--judge-model`
+(now doubles as a same-provider "different model judges" bias-mitigation
+knob). Dashboard's curator table gained a verified/unverified badge. See
+`tests/test_curator_bench.py` (`_ClientAsJudge`, `evaluate_curator_quality_gate`)
+and `tests/test_bench_curator_cli.py` (`_select_curator_judge()` precedence).
+
 One deviation from the original design below: recency uses a proper
 half-life formula (`0.5 ** (age_days / half_life_days)`, so a chunk aged
 exactly `half_life_days` scores 0.5), not the `exp(-age_days/half_life_days)`
@@ -488,7 +507,7 @@ used, since `expected` normally means something else for other metrics.
 2. Check `CONTRIBUTING.md` for the PR workflow, commit conventions, and
    how releases/`CHANGELOG.md` entries work.
 3. Run the full test suite before and after your change:
-   `pytest` (should stay green — currently 171 tests passing).
+   `pytest` (should stay green — currently 191 tests passing).
 4. Run `ruff check .` and `mypy contextops contextops_bench` before
    committing — this repo has zero tolerance for lint/type errors on
    touched files.

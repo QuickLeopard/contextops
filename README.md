@@ -387,11 +387,17 @@ python -m contextops_bench cloud --provider direct_google \
 
 # RAG Curator bench: synthetic noisy-retrieval dataset, raw vs curated chunks,
 # real LLM, measures token/cost savings AND answer-quality impact
-# (judge metrics + deterministic context_precision). Offline smoke:
+# (judge metrics + deterministic context_precision), gated by a bootstrap-CI
+# significance check on the quality deltas (n>=20 required to "verify").
+# By default it self-judges using the SAME client/key as the model under
+# test (no separate judge credential needed) — pass --judge-model to have
+# a different model on the same provider judge instead. Offline smoke:
 python -m contextops_bench curator --provider echo --echo-judge --n 20
-# Real run:
+# Real run (self-judged, real quality-gate CI):
 python -m contextops_bench curator --provider ollama --model llama3.1:8b \
     --n 50 --noise-ratio 0.7 --metrics relevance,completeness
+# --litellm-judge opts into a separate litellm-compatible judge credential
+# instead of self-judging; --max-tokens controls answer length (default 200).
 ```
 
 **About `--preset-agent`:** the bench needs a stable system prompt + tool schema + role across all calls for cache hits to be non-zero. `--preset-agent realistic` pins all three. On cache-bearing providers (OpenRouter + the four `direct_*`), the bench auto-applies `realistic` if you don't pass a preset — with a loud warning explaining why. Use `--preset-agent none` to opt out and use randomized prompts.

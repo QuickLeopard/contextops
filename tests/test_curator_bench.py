@@ -13,9 +13,12 @@ behavior a real LLM should approximate.
 from __future__ import annotations
 
 from contextops.clients import EchoJudge
+from contextops.judge import score_many
 from contextops_bench.clients import CompletionResponse
 from contextops_bench.curator_bench import (
     CurationBenchItem,
+    _ClientAsJudge,
+    evaluate_curator_quality_gate,
     generate_curation_dataset,
     run_curator_bench,
     render_curator_summary,
@@ -169,3 +172,150 @@ def test_render_curator_summary_empty_summary_no_crash():
     """Degenerate case: empty items list -> empty raw/curated stats."""
     text = render_curator_summary({"n": 0, "raw": {}, "curated": {}}, label="empty")
     assert "empty" in text
+
+
+def test_run_curator_bench_max_tokens_plumbed_to_client():
+    """`max_tokens` must reach the LLM-under-test's `client.complete()` calls
+    (default was too short — 64 — starving the judge/context_precision of
+    signal), but NOT necessarily the judge's own calls (handled separately).
+    """
+    seen_max_tokens: list[int] = []
+
+    class _RecordingClient(_FakeAnswerClient):
+        def complete(self, *, model, messages, temperature=0.0, max_tokens=64):
+            seen_max_tokens.append(max_tokens)
+            return super().complete(
+                model=model, messages=messages, temperature=temperature, max_tokens=max_tokens,
+            )
+
+    items = generate_curation_dataset(4, seed=31)
+    run_curator_bench(
+        items, client=_RecordingClient(), model="fake-model", judge=EchoJudge(),
+        metrics=["relevance"], judge_model="echo", max_tokens=321,
+    )
+    assert seen_max_tokens
+    assert all(mt == 321 for mt in seen_max_tokens)
+
+
+class _EchoingJudgeClient:
+    """Stub bench client for `_ClientAsJudge` tests: always answers with a
+    fixed JSON score payload, distinguishable from any real answer text.
+    """
+
+    PROVIDER = "fake-judge"
+
+    def complete(self, *, model: str, messages: list[dict],
+                 temperature: float = 0.0, max_tokens: int = 64) -> CompletionResponse:
+        return CompletionResponse(
+            text='{"score": 0.9, "reason": "stub judge verdict"}',
+            prompt_tokens=10, completion_tokens=5, cached_tokens=0,
+            cost_usd=0.0, model=model, raw={},
+        )
+
+
+def test_client_as_judge_returns_text_from_response():
+    judge = _ClientAsJudge(_EchoingJudgeClient())
+    result = judge.complete(model="fake-model", messages=[{"role": "user", "content": "hi"}])
+    assert result == '{"score": 0.9, "reason": "stub judge verdict"}'
+
+
+def test_client_as_judge_satisfies_judge_client_protocol_for_score_many():
+    """`_ClientAsJudge` must be directly usable wherever a `JudgeClient` is
+    expected — e.g. `score_many()`, which only duck-types `.complete()`.
+    """
+    judge = _ClientAsJudge(_EchoingJudgeClient())
+    results = score_many(
+        ["some response"], metrics=["relevance"], judge=judge, model="fake-model",
+    )
+    assert len(results) == 1
+    assert results[0]["score"] == 0.9
+
+
+def test_client_as_judge_passes_through_max_tokens_not_model_under_test_value():
+    """The judge's own `max_tokens` is independent of the LLM-under-test's
+    (should stay small — the judge only needs to emit a short JSON verdict).
+    """
+    seen: list[int] = []
+
+    class _RecordingJudgeClient(_EchoingJudgeClient):
+        def complete(self, *, model, messages, temperature=0.0, max_tokens=64):
+            seen.append(max_tokens)
+            return super().complete(model=model, messages=messages, temperature=temperature, max_tokens=max_tokens)
+
+    judge = _ClientAsJudge(_RecordingJudgeClient(), max_tokens=150)
+    judge.complete(model="fake-model", messages=[{"role": "user", "content": "hi"}])
+    assert seen == [150]
+
+
+def _scores(metric: str, values: list[float]) -> list[dict]:
+    return [{"index": i, "metric": metric, "score": v, "reason": "", "raw": ""} for i, v in enumerate(values)]
+
+
+def test_evaluate_curator_quality_gate_significant_improvement():
+    """A clear, consistent, non-zero delta across n>=min_n items should be
+    flagged as verified with the metric in significant_metrics.
+    """
+    raw = _scores("relevance", [0.5] * 25)
+    curated = _scores("relevance", [0.9] * 25)
+    gate = evaluate_curator_quality_gate(raw, curated, min_n=20)
+    assert gate["n"] == 25
+    assert gate["low_n"] is False
+    assert gate["verified"] is True
+    assert "relevance" in gate["significant_metrics"]
+    assert gate["per_metric"]["relevance"]["significant"] is True
+    assert gate["per_metric"]["relevance"]["effect_size_pct"] > 0
+
+
+def test_evaluate_curator_quality_gate_identical_scores_not_significant():
+    """Identical scores both arms -> zero-width CI at zero -> not significant."""
+    raw = _scores("relevance", [0.7] * 25)
+    curated = _scores("relevance", [0.7] * 25)
+    gate = evaluate_curator_quality_gate(raw, curated, min_n=20)
+    assert gate["per_metric"]["relevance"]["significant"] is False
+    assert gate["verified"] is False
+    assert any("CI" in r for r in gate["reasons"])
+
+
+def test_evaluate_curator_quality_gate_low_n():
+    raw = _scores("relevance", [0.5] * 5)
+    curated = _scores("relevance", [0.9] * 5)
+    gate = evaluate_curator_quality_gate(raw, curated, min_n=20)
+    assert gate["low_n"] is True
+    assert gate["verified"] is False
+    assert any("min_n" in r for r in gate["reasons"])
+
+
+def test_evaluate_curator_quality_gate_multi_metric_pairing_by_index():
+    """Metrics are paired by (metric, index), not just position — mixing two
+    metrics in the input lists must not cross-contaminate their diffs.
+    """
+    raw = _scores("relevance", [0.5] * 20) + _scores("completeness", [0.8] * 20)
+    curated = _scores("relevance", [0.9] * 20) + _scores("completeness", [0.8] * 20)
+    gate = evaluate_curator_quality_gate(raw, curated, min_n=20)
+    assert gate["per_metric"]["relevance"]["significant"] is True
+    assert gate["per_metric"]["completeness"]["significant"] is False
+
+
+def test_run_curator_bench_summary_has_quality_gate_and_judge_label():
+    items = generate_curation_dataset(8, seed=41)
+    summary = run_curator_bench(
+        items, client=_FakeAnswerClient(), model="fake-model", judge=EchoJudge(),
+        metrics=["relevance"], judge_model="echo", judge_label="echo",
+    )
+    assert summary["judge"] == "echo"
+    assert "quality_gate" in summary
+    assert "n" in summary["quality_gate"]
+    assert "relevance" in summary["quality"]
+    assert "ci_low" in summary["quality"]["relevance"]
+
+
+def test_render_curator_summary_includes_judge_and_quality_gate_sections():
+    items = generate_curation_dataset(5, seed=51)
+    summary = run_curator_bench(
+        items, client=_FakeAnswerClient(), model="fake-model", judge=EchoJudge(),
+        metrics=["relevance"], judge_model="echo", judge_label="self",
+    )
+    text = render_curator_summary(summary, label="test_run")
+    assert "judge=self" in text
+    assert "self-judged" in text
+    assert "QUALITY GATE" in text

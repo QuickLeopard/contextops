@@ -105,10 +105,13 @@ def _load_curator_runs() -> list[dict]:
     """Load `bench/results/*.curator_summary.json` (RAG curator bench results).
 
     Distinct suffix from `_load_runs()`'s `*.summary.json` — the curator
-    bench schema has no cache-hit-rate / quality-gate fields, so it doesn't
-    run through `evaluate_quality_gate`. `run_curator_bench()` stores
-    ground-truth `provider`/`model` directly in the summary (same pattern as
-    `runner.summarize()`), so no filename parsing is needed here.
+    bench schema has its own significance gate (`quality_gate`, computed by
+    `contextops_bench.curator_bench.evaluate_curator_quality_gate`), separate
+    from the cache-hit-rate gate (`evaluate_quality_gate` in
+    `contextops_bench.quality`) that `_load_runs()`/`_render_table()` use.
+    `run_curator_bench()` stores ground-truth `provider`/`model` directly in
+    the summary (same pattern as `runner.summarize()`), so no filename
+    parsing is needed here.
     """
     runs = []
     for path in sorted(RESULTS_DIR.glob("*.curator_summary.json")):
@@ -146,6 +149,33 @@ def _render_curator_rows(curator_runs: list[dict]) -> str:
             f"{m}: {d.get('delta', 0):+.3f}" for m, d in quality.items()
         ) or "n/a"
 
+        gate = data.get("quality_gate") or {}
+        judge_label = data.get("judge", "")
+        judge_title = (
+            "self-judged — same/sibling model graded its own answers"
+            if judge_label == "self" or str(judge_label).startswith("self:")
+            else judge_label or "unknown"
+        )
+        if gate.get("verified"):
+            sig_metrics = ", ".join(gate.get("significant_metrics", [])) or "n/a"
+            quality_badge = (
+                f'<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full '
+                f'text-xs font-medium bg-emerald-100 text-emerald-700" '
+                f'title="significant: {sig_metrics}; judge={judge_title}">verified</span>'
+            )
+        elif gate:
+            reasons = "; ".join(gate.get("reasons", [])) or "did not pass quality gate"
+            quality_badge = (
+                f'<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full '
+                f'text-xs font-medium bg-amber-100 text-amber-700" '
+                f'title="{reasons}; judge={judge_title}">unverified</span>'
+            )
+        else:
+            quality_badge = (
+                '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full '
+                'text-xs font-medium bg-slate-100 text-slate-500">n/a</span>'
+            )
+
         rows.append(
             f"""<tr class="hover:bg-slate-50">
   <td class="px-6 py-3 font-medium">{r['provider']}</td>
@@ -155,6 +185,7 @@ def _render_curator_rows(curator_runs: list[dict]) -> str:
   <td class="px-6 py-3 text-right {cost_class}">${cost_delta:+.6f}</td>
   <td class="px-6 py-3 text-right {cp_class}">{cp_raw:.1%} &rarr; {cp_curated:.1%}</td>
   <td class="px-6 py-3 text-slate-600 text-xs">{quality_str}</td>
+  <td class="px-6 py-3">{quality_badge}</td>
 </tr>"""
         )
     return "\n".join(rows)
@@ -190,6 +221,7 @@ def _render_curator_section(curator_runs: list[dict]) -> str:
               <th class="text-right px-6 py-3 font-medium">Cost &Delta;/call</th>
               <th class="text-right px-6 py-3 font-medium">Context precision (raw &rarr; curated)</th>
               <th class="text-left px-6 py-3 font-medium">Quality &Delta; (curated&minus;raw)</th>
+              <th class="text-left px-6 py-3 font-medium">Quality gate</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">

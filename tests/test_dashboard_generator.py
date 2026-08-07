@@ -103,6 +103,7 @@ def _curator_summary_fixture() -> dict:
     return {
         "provider": "fake",
         "model": "fake-model",
+        "judge": "self",
         "n": 10,
         "raw": {
             "n": 10, "prompt_tokens_mean": 120.0, "completion_tokens_mean": 4.0,
@@ -121,7 +122,16 @@ def _curator_summary_fixture() -> dict:
         },
         "quality": {
             "relevance": {"baseline_mean": 0.7, "optimized_mean": 0.75, "delta": 0.05,
-                          "n_baseline": 10, "n_optimized": 10, "n": 10},
+                          "n_baseline": 10, "n_optimized": 10, "n": 10,
+                          "ci_low": 0.01, "ci_high": 0.09, "significant": True,
+                          "effect_size_pct": 7.1},
+        },
+        "quality_gate": {
+            "n": 10, "min_n": 20, "low_n": True, "verified": False,
+            "significant_metrics": ["relevance"],
+            "reasons": ["n=10 < min_n=20"],
+            "per_metric": {"relevance": {"ci_low": 0.01, "ci_high": 0.09,
+                                          "significant": True, "effect_size_pct": 7.1}},
         },
         "curation": {"mean_drop_rate": 0.5, "total_dedup_drops": 2},
     }
@@ -167,6 +177,38 @@ def test_render_curator_section_renders_provider_and_metrics():
     assert "fake" in html
     assert "fake-model" in html
     assert "relevance" in html
+
+
+def test_render_curator_section_shows_unverified_badge_for_low_n():
+    """Fixture's quality_gate has verified=False (n < min_n) — must render
+    the amber "unverified" badge, not "verified".
+    """
+    runs = [{"provider": "fake", "model": "fake-model", "data": _curator_summary_fixture()}]
+    html = _render_curator_section(runs)
+    assert "unverified" in html
+    assert "Quality gate" in html
+
+
+def test_render_curator_section_shows_verified_badge_when_gate_passes():
+    data = _curator_summary_fixture()
+    data["quality_gate"] = {
+        "n": 25, "min_n": 20, "low_n": False, "verified": True,
+        "significant_metrics": ["relevance"], "reasons": [], "per_metric": {},
+    }
+    runs = [{"provider": "fake", "model": "fake-model", "data": data}]
+    html = _render_curator_section(runs)
+    assert ">verified<" in html
+
+
+def test_render_curator_section_missing_quality_gate_renders_na_badge():
+    """Older result files (from before quality_gate existed) shouldn't crash
+    the dashboard — should degrade to an "n/a" badge.
+    """
+    data = _curator_summary_fixture()
+    del data["quality_gate"]
+    runs = [{"provider": "fake", "model": "fake-model", "data": data}]
+    html = _render_curator_section(runs)
+    assert ">n/a<" in html
 
 
 def test_generate_dashboard_script_produces_html(tmp_path, monkeypatch):
