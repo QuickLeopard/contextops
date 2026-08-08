@@ -94,6 +94,7 @@ Estimated impact on a typical workload:
 | **LiteLLM auto-log (opt)** | One line to auto-log every litellm call. `pip install "contextops[integrations]"` |
 | **OpenAI SDK patch (opt)** | One line to reorder + log every `openai.OpenAI().chat.completions.create` call. |
 | **Public benchmark dashboard** | Auto-generated HTML dashboard from `bench/results/*.summary.json` (cache/cost) and `*.curator_summary.json` (RAG curator: token/quality impact). |
+| **Access-aware context + audit trail** | Tag prompt sections with required roles, redact before reordering, and log inclusion/redaction decisions to local SQLite (hashes only). |
 | **Bench harness** | 1000+ prompts through Ollama, LM Studio, vLLM, TGI, OpenRouter, or direct APIs (Anthropic / OpenAI / Gemini / OpenCode-ZEN). |
 
 ---
@@ -445,7 +446,30 @@ See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for the formal pass criteria.
 
 ---
 
-## 🗺️ Roadmap
+## � Access control (v1.0 Track B, in progress)
+
+Tag prompt sections with required roles and ContextOps will redact disallowed
+content *before* optimizing or sending anything to the LLM:
+
+```bash
+contextops optimize \
+  --context "Public company summary" \
+  --documents "Q3 board deck financials" \
+  --access-tags '{"documents": ["executive"]}' \
+  --principal-role support
+```
+
+Because `support` lacks the `executive` role, the `documents` section is dropped,
+the prompt is optimized without it, and the decision is written to the local
+SQLite audit log (`access_audit` table) with a content hash only — never the raw
+text.
+
+For library use, see `contextops.access.apply_access_policy()` and
+`contextops.logger.Logger.log_access()`.
+
+---
+
+## �🗺️ Roadmap
 
 - ✅ **v0.1** — reorder, token count, SQLite logger, CLI
 - ✅ **v0.2** — LLM-as-judge eval + A/B testing + dataset loaders

@@ -21,6 +21,7 @@ from rich.progress import (
 from rich.table import Table
 
 from contextops import __version__
+from contextops.access import Principal, TaggedContent, apply_access_policy
 from contextops.clients import EchoJudge, LiteLLMJudge
 from contextops.curator import CuratorConfig, DocumentChunk, curate as run_curate
 from contextops.dataset import DatasetItem, load as load_dataset
@@ -53,6 +54,12 @@ def main() -> None:
               type=click.Choice(["cache_friendly", "balanced", "quality"]))
 @click.option("--from-json", "from_json", type=click.Path(exists=True), default=None,
               help="Load prompt from a JSON file")
+@click.option("--principal-id", default="anonymous",
+              help="Identity of the caller for access filtering")
+@click.option("--principal-role", "principal_roles", multiple=True, default=None,
+              help="Comma-separated role(s) the caller has (can be given multiple times)")
+@click.option("--access-tags", default=None,
+              help='JSON mapping section names to required roles, e.g. {"documents": ["executive"]}')
 def optimize(
     system: str,
     tools: str,
@@ -64,6 +71,9 @@ def optimize(
     model: str,
     goal: str,
     from_json: str | None,
+    principal_id: str,
+    principal_roles: tuple[str, ...],
+    access_tags: str | None,
 ) -> None:
     """Optimize a prompt's section order for cache friendliness."""
     if from_json:
@@ -90,8 +100,38 @@ def optimize(
 
     from contextops.optimizer import optimize as run_optimize
 
+    if access_tags:
+        tags = json.loads(access_tags)
+        principal = Principal(
+            id=principal_id,
+            roles=set(r.strip() for part in principal_roles for r in part.split(",") if r.strip()),
+        )
+        contents = _tagged_from_prompt(p, tags)
+        redaction = apply_access_policy(contents, principal)
+        p = redaction.prompt
+        if redaction.redacted:
+            logger = Logger()
+            logger.log_access(redaction.decisions)
+            console.print(
+                f"[yellow]Redacted {len(redaction.redacted)} section(s) due to access policy.[/yellow]"
+            )
+
     result = run_optimize(p)
+    if access_tags and redaction.redacted:
+        result.notes.append(f"Access policy redacted {len(redaction.redacted)} section(s)")
     _render_optimization(result)
+
+
+def _tagged_from_prompt(prompt: Prompt, tags: dict) -> list[TaggedContent]:
+    """Convert a Prompt into TaggedContent for access filtering."""
+
+    contents: list[TaggedContent] = []
+    for section_name, text in prompt.sections():
+        required = set(tags.get(section_name, []))
+        contents.append(
+            TaggedContent(text=text, section=section_name, required_roles=required)
+        )
+    return contents
 
 
 def _render_optimization(result) -> None:

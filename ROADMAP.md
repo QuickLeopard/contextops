@@ -16,7 +16,7 @@ blocking the others.
 | Track | Codename | Effort | Status |
 |---|---|---|---|
 | A | RAG Curator | Large (multi-week) | Core + eval integration shipped (v0.4) |
-| B | Access-Aware Context + Audit Trail | Large (multi-week) | Not started — design only |
+| B | Access-Aware Context + Audit Trail | Large (multi-week) | MVP in progress — core model, logger audit table, CLI redaction shipped |
 | C | Bench/Dashboard Maturity | Small (days) | Partially done — quality gates shipped, backfill pending |
 | D | New Providers/Metrics | Small (hours-days each) | `vllm`/`tgi` + `safety`/`format_compliance` shipped — more welcome |
 

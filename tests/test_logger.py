@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+from contextops.access import AccessDecision
 from contextops.logger import Logger
 from contextops.models import CallLog
 
@@ -84,3 +85,86 @@ def test_concurrent_writes_do_not_raise():
             list(pool.map(_write, range(50)))
 
         assert logger.stats(limit=100)["total_calls"] == 50
+
+
+def test_log_access_decisions():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "test.db"
+        logger = Logger(db)
+        call_id = logger.log(_make_entry())
+        decisions = [
+            AccessDecision(
+                principal_id="alice",
+                section="documents",
+                action="redacted",
+                reason="missing required roles: executive",
+                content_hash="abc123",
+            ),
+            AccessDecision(
+                principal_id="alice",
+                section="query",
+                action="included",
+                reason="role allowed",
+                content_hash="def456",
+            ),
+        ]
+        ids = logger.log_access(decisions, call_id=call_id)
+        assert len(ids) == 2
+
+        rows = logger.audit_query()
+        assert len(rows) == 2
+        # Most recent first
+        assert rows[0]["action"] == "included"
+        assert rows[0]["call_id"] == call_id
+        assert rows[1]["action"] == "redacted"
+
+
+def test_audit_query_filters_by_principal():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "test.db"
+        logger = Logger(db)
+        decisions = [
+            AccessDecision(
+                principal_id="alice",
+                section="documents",
+                action="included",
+                reason="role allowed",
+                content_hash="h1",
+            ),
+            AccessDecision(
+                principal_id="bob",
+                section="documents",
+                action="included",
+                reason="role allowed",
+                content_hash="h2",
+            ),
+        ]
+        logger.log_access(decisions)
+        alice_rows = logger.audit_query(principal_id="alice")
+        assert len(alice_rows) == 1
+        assert alice_rows[0]["principal_id"] == "alice"
+
+
+def test_audit_table_never_stores_raw_content():
+    """Regression: the audit log stores only hashes, never the sensitive text."""
+
+    sensitive = "top-secret salary data"
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "test.db"
+        logger = Logger(db)
+        decisions = [
+            AccessDecision(
+                principal_id="alice",
+                section="documents",
+                action="redacted",
+                reason="missing role",
+                content_hash="hash-of-secret",
+            )
+        ]
+        logger.log_access(decisions)
+        with logger._connect() as conn:
+            dump = " ".join(
+                str(row)
+                for row in conn.execute("SELECT * FROM access_audit").fetchall()
+            )
+        assert sensitive not in dump

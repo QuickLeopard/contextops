@@ -8,7 +8,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
+from contextops.access import AccessDecision
 from contextops.models import CallLog
+
+import datetime as _datetime
 
 DEFAULT_DB_PATH = Path.home() / ".contextops" / "calls.db"
 
@@ -57,6 +60,30 @@ class Logger:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_calls_model ON calls(model)"
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS access_audit (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
+                    call_id INTEGER,
+                    section TEXT NOT NULL,
+                    action TEXT NOT NULL CHECK(action IN ('included','redacted')),
+                    reason TEXT,
+                    content_hash TEXT NOT NULL,
+                    FOREIGN KEY (call_id) REFERENCES calls(id)
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_access_audit_call ON access_audit(call_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_access_audit_principal ON access_audit(principal_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_access_audit_timestamp ON access_audit(timestamp)"
+            )
 
     def log(self, entry: CallLog) -> int:
         """Append one call. Returns the row id."""
@@ -84,6 +111,70 @@ class Logger:
             )
             row_id = cur.lastrowid
             return row_id if row_id is not None else -1
+
+    def log_access(
+        self,
+        decisions: list[AccessDecision],
+        *,
+        call_id: Optional[int] = None,
+        timestamp: Optional[str] = None,
+    ) -> list[int]:
+        """Append access decisions for one prompt. Returns inserted row ids."""
+
+        ts = timestamp or _datetime.datetime.utcnow().isoformat()
+        row_ids: list[int] = []
+        with self._connect() as conn:
+            for decision in decisions:
+                cur = conn.execute(
+                    """
+                    INSERT INTO access_audit
+                        (timestamp, principal_id, call_id, section,
+                         action, reason, content_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        ts,
+                        decision.principal_id,
+                        call_id,
+                        decision.section,
+                        decision.action,
+                        decision.reason,
+                        decision.content_hash,
+                    ),
+                )
+                row_id = cur.lastrowid
+                row_ids.append(row_id if row_id is not None else -1)
+        return row_ids
+
+    def audit_query(
+        self,
+        *,
+        principal_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Return recent access-audit rows, optionally filtered by principal."""
+
+        with self._connect() as conn:
+            sql = """
+                SELECT
+                    a.id,
+                    a.timestamp,
+                    a.principal_id,
+                    a.call_id,
+                    a.section,
+                    a.action,
+                    a.reason,
+                    a.content_hash
+                FROM access_audit a
+            """
+            params: list[object] = []
+            if principal_id is not None:
+                sql += " WHERE a.principal_id = ?"
+                params.append(principal_id)
+            sql += " ORDER BY a.id DESC LIMIT ?"
+            params.append(limit)
+            rows = conn.execute(sql, params).fetchall()
+            return [dict(r) for r in rows]
 
     def stats(self, limit: int = 100) -> dict:
         """Return aggregate stats over recent calls."""
