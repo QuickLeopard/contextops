@@ -9,8 +9,10 @@ from pathlib import Path
 from scripts.generate_dashboard import (
     _build_datasets,
     _load_curator_runs,
+    _load_runs,
     _parse_filename,
     _render_curator_section,
+    _run_sort_key,
     _summary_stats,
 )
 
@@ -135,6 +137,66 @@ def _curator_summary_fixture() -> dict:
         },
         "curation": {"mean_drop_rate": 0.5, "total_dedup_drops": 2},
     }
+
+
+def _fake_summary(
+    *, n: int = 25, errors: int = 0, ci_low: float = -0.001, ci_high: float = -0.0005,
+    error_breakdown: dict | None = None,
+) -> dict:
+    """Minimal summary.json shape sufficient to drive `evaluate_quality_gate`
+    deterministically for sort-order tests.
+    """
+    return {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "optimized": {"n": n, "errors": errors, "error_breakdown": error_breakdown or {}},
+        "baseline": {"n": n, "errors": errors, "error_breakdown": error_breakdown or {}},
+        "delta": {"cost_delta_ci_low_usd": ci_low, "cost_delta_ci_high_usd": ci_high},
+    }
+
+
+def test_run_sort_key_verified_before_unverified():
+    verified_run = {"quality": {"verified": True, "confidence": "high"}}
+    unverified_run = {"quality": {"verified": False, "confidence": "high"}}
+    assert _run_sort_key(verified_run) < _run_sort_key(unverified_run)
+
+
+def test_run_sort_key_orders_confidence_high_to_low():
+    high = {"quality": {"verified": False, "confidence": "high"}}
+    medium = {"quality": {"verified": False, "confidence": "medium"}}
+    low = {"quality": {"verified": False, "confidence": "low"}}
+    invalid = {"quality": {"verified": False, "confidence": "invalid"}}
+    assert _run_sort_key(high) < _run_sort_key(medium) < _run_sort_key(low) < _run_sort_key(invalid)
+
+
+def test_load_runs_sorts_verified_first_then_by_confidence(tmp_path, monkeypatch):
+    results_dir = tmp_path / "bench" / "results"
+    results_dir.mkdir(parents=True)
+    # "z_" prefix so filename-alphabetical order would put it LAST if sorting
+    # were still by filename — proves the new sort overrides that.
+    (results_dir / "z_verified.summary.json").write_text(
+        json.dumps(_fake_summary(n=25, errors=0, ci_low=-0.002, ci_high=-0.001))
+    )
+    (results_dir / "a_unverified_low_n.summary.json").write_text(
+        json.dumps(_fake_summary(n=5, errors=0, ci_low=-0.002, ci_high=-0.001))
+    )
+    (results_dir / "m_unverified_invalid.summary.json").write_text(
+        json.dumps(_fake_summary(n=25, errors=1, error_breakdown={"auth": 1}))
+    )
+
+    import scripts.generate_dashboard as gen
+
+    monkeypatch.setattr(gen, "ROOT", tmp_path)
+    monkeypatch.setattr(gen, "RESULTS_DIR", results_dir)
+    runs = _load_runs()
+
+    assert [r["path"].split("/")[-1] for r in runs] == [
+        "z_verified.summary.json",
+        "a_unverified_low_n.summary.json",
+        "m_unverified_invalid.summary.json",
+    ]
+    assert runs[0]["quality"]["verified"] is True
+    assert runs[-1]["quality"]["confidence"] == "invalid"
 
 
 def test_load_curator_runs_reads_provider_model_from_json(tmp_path, monkeypatch):

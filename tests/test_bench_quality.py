@@ -9,6 +9,7 @@ from contextops_bench.quality import (
     classify_error,
     confidence_level,
     evaluate_quality_gate,
+    is_local_provider,
     summarize_errors,
 )
 
@@ -21,11 +22,21 @@ def _summary(
     errors_base: int = 0,
     ci_low: float | None = -0.01,
     ci_high: float | None = -0.005,
+    token_ci_low: float | None = None,
+    token_ci_high: float | None = None,
+    latency_ci_low: float | None = None,
+    latency_ci_high: float | None = None,
 ) -> dict:
     delta = {}
     if ci_low is not None and ci_high is not None:
         delta["cost_delta_ci_low_usd"] = ci_low
         delta["cost_delta_ci_high_usd"] = ci_high
+    if token_ci_low is not None and token_ci_high is not None:
+        delta["prompt_tokens_delta_ci_low"] = token_ci_low
+        delta["prompt_tokens_delta_ci_high"] = token_ci_high
+    if latency_ci_low is not None and latency_ci_high is not None:
+        delta["latency_ms_p50_delta_ci_low"] = latency_ci_low
+        delta["latency_ms_p50_delta_ci_high"] = latency_ci_high
     return {
         "optimized": {"n": n_opt, "errors": errors_opt},
         "baseline": {"n": n_base, "errors": errors_base},
@@ -152,3 +163,69 @@ def test_evaluate_quality_gate_blocks_verified_on_auth_errors():
     assert gate["has_auth_errors"] is True
     assert gate["confidence"] == "invalid"
     assert any("auth error" in r for r in gate["reasons"])
+
+
+def test_local_provider_verified_on_significant_token_delta():
+    """Self-hosted providers with zero cost can verify on token savings."""
+    summary = _summary(
+        ci_low=0.0, ci_high=0.0,  # cost is zero / not significant
+        token_ci_low=-50.0,
+        token_ci_high=-10.0,
+    )
+    gate = evaluate_quality_gate(summary, provider="ollama", model="llama3.2:latest")
+    assert gate["local_provider"] is True
+    assert gate["token_significant"] is True
+    assert gate["verified"] is True
+    assert any("local provider verified on token" in r for r in gate["reasons"])
+
+
+def test_local_provider_verified_on_significant_latency_delta():
+    """Self-hosted providers with zero cost can verify on latency savings."""
+    summary = _summary(
+        ci_low=0.0, ci_high=0.0,
+        latency_ci_low=-2000.0,
+        latency_ci_high=-500.0,
+    )
+    gate = evaluate_quality_gate(summary, provider="vllm", model="mistral-7b")
+    assert gate["local_provider"] is True
+    assert gate["latency_significant"] is True
+    assert gate["verified"] is True
+
+
+def test_local_provider_fails_when_no_significant_token_or_latency_delta():
+    summary = _summary(
+        ci_low=0.0, ci_high=0.0,
+        token_ci_low=-5.0,
+        token_ci_high=5.0,
+        latency_ci_low=-100.0,
+        latency_ci_high=100.0,
+    )
+    gate = evaluate_quality_gate(summary, provider="ollama", model="llama3.2:latest")
+    assert gate["local_provider"] is True
+    assert gate["token_significant"] is False
+    assert gate["latency_significant"] is False
+    assert gate["verified"] is False
+    assert any("both include zero" in r for r in gate["reasons"])
+
+
+def test_non_local_provider_still_requires_cost_significance():
+    summary = _summary(
+        token_ci_low=-50.0,
+        token_ci_high=-10.0,
+        ci_low=-0.002,
+        ci_high=0.001,
+    )
+    gate = evaluate_quality_gate(summary, provider="openai", model="gpt-4o-mini")
+    assert gate["local_provider"] is False
+    assert gate["cost_significant"] is False
+    assert gate["verified"] is False
+    assert any("cost delta 95% CI" in r for r in gate["reasons"])
+
+
+def test_is_local_provider_recognizes_self_hosted_paths():
+    assert is_local_provider("ollama") is True
+    assert is_local_provider("vllm") is True
+    assert is_local_provider("tgi") is True
+    assert is_local_provider("lmstudio") is True
+    assert is_local_provider("openai") is False
+    assert is_local_provider("OpenAI") is False

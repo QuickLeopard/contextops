@@ -86,9 +86,19 @@ smoke test against a real provider). `load_curation_dataset()` + `--dataset
 <path.json>` let a real production chunk export (same schema as `contextops
 curate --chunks`) drive the bench instead of synthetic data, mutually
 exclusive with every synthetic-generator flag via
-`_check_dataset_mutual_exclusivity()` in `contextops_bench/__main__.py`. See
-`tests/test_curator_fuzz.py`, `tests/test_embedders.py`, and the extended
-`tests/test_curator_bench.py`/`tests/test_bench_curator_cli.py`.
+`_check_dataset_mutual_exclusivity()` in `contextops_bench/__main__.py`.
+
+**Bench/dashboard maturity (Track C)**: `scripts/generate_dashboard.py` sorts the
+"All runs" table by verified status then confidence. `scripts/ci_bench_data_gate.py`
++ `.github/workflows/bench-regression.yml` block unverified
+`bench/results/*.summary.json` files from merging without API keys or network
+calls. `contextops_bench/quality.py` now recognizes local/self-hosted providers
+(`ollama`, `vllm`, `tgi`, `lmstudio`) and verifies them on significant token-count
+or latency deltas instead of USD cost; `contextops_bench/runner.py` computes
+paired bootstrap CIs for both. The `realistic` agent preset was padded to exceed
+Anthropic Haiku's 2048-token cache minimum, restoring cache hit rate. See
+`tests/test_bench_quality.py`, `tests/test_dashboard_generator.py`, and
+`tests/test_ci_bench_data_gate.py`.
 
 One deviation from the original design below: recency uses a proper
 half-life formula (`0.5 ** (age_days / half_life_days)`, so a chunk aged
@@ -531,7 +541,7 @@ used, since `expected` normally means something else for other metrics.
 2. Check `CONTRIBUTING.md` for the PR workflow, commit conventions, and
    how releases/`CHANGELOG.md` entries work.
 3. Run the full test suite before and after your change:
-   `pytest` (should stay green — currently 250 tests passing).
+   `pytest` (should stay green — currently 256 tests passing).
 4. Run `ruff check .` and `mypy contextops contextops_bench` before
    committing — this repo has zero tolerance for lint/type errors on
    touched files.

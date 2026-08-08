@@ -432,6 +432,13 @@ Each run writes:
 - `bench/results/<label>.summary.json` — aggregated stats with optimized vs baseline deltas
 - `bench/results/<label>.curator_summary.json` (curator subcommand only) — raw vs curated stats, quality deltas, context precision
 
+**Local/self-hosted providers (ollama, vllm, tgi, lmstudio):** cost is always
+reported as $0.00, so the quality gate verifies them on statistically
+significant *token-count* or *latency* deltas instead of cost. The summary
+includes paired bootstrap CIs for both. If a local run still shows
+"unverified", the optimized and baseline orderings produced no measurable
+difference in tokens or latency for that model/prompt set.
+
 **Troubleshooting cache reads showing 0?** Read [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md) — it covers the realistic-preset cache key regression, why OpenRouter drops `cache_control` markers during translation, and why EchoClient (used in unit tests) hides the bug.
 
 See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for the formal pass criteria.
@@ -443,7 +450,7 @@ See [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) for the formal pass criteria.
 - ✅ **v0.1** — reorder, token count, SQLite logger, CLI
 - ✅ **v0.2** — LLM-as-judge eval + A/B testing + dataset loaders
 - ✅ **v0.3** — realistic-preset cache-key regression fix + direct providers (Anthropic / Zen / OpenAI / Gemini) + CI bench regression gate + safety-net auto-default on cache-bearing providers + deterministic bench quality gates (confidence scoring, error classification, run timestamps). See [`docs/POSTMORTEM_realistic_cache.md`](docs/POSTMORTEM_realistic_cache.md).
-- ✅ **v0.4** — RAG curator (multi-signal retrieval + strict threshold) + real-LLM bench (raw vs curated: token/cost + answer-quality impact) + public dashboard integration + hardened curator testing (property-based fuzzing, diverse prompt styles, pluggable real-embedding similarity, production-data ingestion)
+- ✅ **v0.4** — RAG curator (multi-signal retrieval + strict threshold) + real-LLM bench (raw vs curated: token/cost + answer-quality impact) + public dashboard integration + hardened curator testing (property-based fuzzing, diverse prompt styles, pluggable real-embedding similarity, production-data ingestion) + bench/dashboard maturity (confidence-based sorting, CI data-quality gate, local-provider verification on token/latency deltas)
 - 🔜 **v1.0** — Access-aware context + audit trail (on-prem / enterprise)
 
 See [`ROADMAP.md`](ROADMAP.md) for a detailed, implementation-ready breakdown of every upcoming track (RAG curator, access-aware context, bench/dashboard maturity, new providers/metrics) — written to be actionable for a junior engineer picking up any item.

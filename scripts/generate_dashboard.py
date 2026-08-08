@@ -70,6 +70,19 @@ def _runtime_provider_model(display_provider: str, display_model: str, data: dic
     return display_provider, display_model
 
 
+_CONFIDENCE_RANK = {"high": 0, "medium": 1, "low": 2, "invalid": 3}
+
+
+def _run_sort_key(run: dict) -> tuple[bool, int]:
+    """Sort key for the "All runs" table: verified runs first, then by
+    descending confidence ("high" before "medium"/"low"/"invalid") — so the
+    most trustworthy rows surface at the top instead of being buried in
+    filename order.
+    """
+    quality = run["quality"]
+    return (not quality["verified"], _CONFIDENCE_RANK.get(quality["confidence"], 99))
+
+
 def _load_runs() -> list[dict]:
     runs = []
     for path in sorted(RESULTS_DIR.glob("*.summary.json")):
@@ -98,6 +111,7 @@ def _load_runs() -> list[dict]:
                 "quality": quality,
             }
         )
+    runs.sort(key=_run_sort_key)
     return runs
 
 

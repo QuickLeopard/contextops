@@ -328,7 +328,7 @@ def summarize(
     }
 
     if summary["optimized"] and summary["baseline"]:
-        summary["delta"] = {
+        delta: dict[str, object] = {
             "cache_hit_rate_delta": round(
                 summary["optimized"]["cache_hit_rate_mean"]
                 - summary["baseline"]["cache_hit_rate_mean"],
@@ -345,6 +345,7 @@ def summarize(
                 1,
             ),
         }
+        summary["delta"] = delta
         # Paired bootstrap CI on cost delta + median effect size (v0.3.3).
         # Both arms iterate the same prompt_ids in the same insertion order
         # because `run_batch` emits optimized before baseline for matched id.
@@ -354,9 +355,33 @@ def summarize(
         if paired:
             paired_diffs = [o - b for o, b in paired]
             ci_low, ci_high = bootstrap_ci(paired_diffs, n_boot=10_000, ci=0.95, seed=0)
-            summary["delta"]["cost_delta_ci_low_usd"] = ci_low
-            summary["delta"]["cost_delta_ci_high_usd"] = ci_high
-            summary["delta"]["effect_size_pct"] = effect_size_pct(opt_costs, base_costs)
+            delta["cost_delta_ci_low_usd"] = ci_low
+            delta["cost_delta_ci_high_usd"] = ci_high
+            delta["effect_size_pct"] = effect_size_pct(opt_costs, base_costs)
+
+        # Token and latency deltas + paired bootstrap CIs (v0.4, Track C).
+        # Local/self-hosted providers report zero cost, so the quality gate
+        # verifies them on statistically significant token or latency savings.
+        opt_tokens = [float(r.prompt_tokens) for r in optimized]
+        base_tokens = [float(r.prompt_tokens) for r in baseline]
+        token_pairs = list(zip(opt_tokens, base_tokens))
+        if token_pairs:
+            token_diffs = [o - b for o, b in token_pairs]
+            tk_low, tk_high = bootstrap_ci(token_diffs, n_boot=10_000, ci=0.95, seed=0)
+            delta["prompt_tokens_delta_ci_low"] = tk_low
+            delta["prompt_tokens_delta_ci_high"] = tk_high
+
+        latency_pairs = [
+            (o.latency_ms, b.latency_ms)
+            for o, b in zip(optimized, baseline)
+            if o.latency_ms > 0 and b.latency_ms > 0
+        ]
+        if latency_pairs:
+            lat_diffs = [o - b for o, b in latency_pairs]
+            lat_low, lat_high = bootstrap_ci(lat_diffs, n_boot=10_000, ci=0.95, seed=0)
+            delta["latency_ms_p50_delta"] = round(statistics.median(lat_diffs), 1)
+            delta["latency_ms_p50_delta_ci_low"] = lat_low
+            delta["latency_ms_p50_delta_ci_high"] = lat_high
         # Per-prompt breakdown (v0.3.3, item 2): top-N rows by |delta cost|.
         summary["breakdown"] = per_prompt_breakdown(
             optimized, baseline, top_n=breakdown_top_n

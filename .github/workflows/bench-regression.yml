@@ -64,6 +64,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  bench-data-quality-gate:
+    name: Bench data quality gate (no API key required)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout (full history for diff)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Check newly added/changed bench/results/*.summary.json
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: python scripts/ci_bench_data_gate.py
+
   bench-regression:
     name: Bench regression gate
     runs-on: ubuntu-latest

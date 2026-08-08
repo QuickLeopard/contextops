@@ -9,6 +9,11 @@ to measure (e.g. OpenRouter drops Anthropic's `cache_control` marker; see
 `evaluate_quality_gate` turns those pitfalls into explicit, reproducible
 pass/fail rules so every summary.json (and the public dashboard built from
 them) carries an honest "is this real?" verdict instead of just raw numbers.
+
+For paid cloud providers verification requires a statistically significant
+cost delta. For local/self-hosted providers (ollama, vllm, tgi, lmstudio)
+cost is always zero, so verification falls back to a significant token-count
+or latency delta instead.
 """
 
 from __future__ import annotations
@@ -33,6 +38,11 @@ CACHE_MARKER_DROP_PATHS: tuple[tuple[str, str], ...] = (
     ("openrouter", "anthropic/"),
 )
 
+# Providers that report zero cost because the model is self-hosted. For these
+# paths the quality gate cannot use USD deltas; it verifies on statistically
+# significant token or latency savings instead.
+LOCAL_PROVIDERS: frozenset[str] = frozenset({"ollama", "vllm", "tgi", "lmstudio"})
+
 
 def cache_marker_dropped(provider: str, model: str) -> bool:
     """True if `provider` is known to strip the cache marker for `model`."""
@@ -40,6 +50,11 @@ def cache_marker_dropped(provider: str, model: str) -> bool:
         provider == p and model.startswith(prefix)
         for p, prefix in CACHE_MARKER_DROP_PATHS
     )
+
+
+def is_local_provider(provider: str) -> bool:
+    """True if `provider` is a self-hosted path with no measurable USD cost."""
+    return provider.lower() in LOCAL_PROVIDERS
 
 
 # Error categories, ordered from most to least severe for confidence scoring.
@@ -125,10 +140,14 @@ def evaluate_quality_gate(
     """Compute a deterministic pass/fail quality gate for a bench summary.
 
     `verified=True` means: adequately powered (n >= min_n), low error rate,
-    no detected auth failures, and a cost-delta 95% CI that excludes zero
-    (statistically significant) — regardless of the direction of that delta.
-    A significant *increase* in cost is just as "verified" as a decrease;
-    it simply isn't a "win".
+    no detected auth failures, and a statistically significant delta on the
+    metric the provider can actually measure.
+
+    For most providers this is a cost-delta 95% CI that excludes zero. For
+    self-hosted/local providers (ollama, vllm, tgi, lmstudio) cost is always
+    zero, so verification falls back to a significant token-count or latency
+    delta. A significant *increase* is just as "verified" as a decrease; it
+    simply isn't a "win".
 
     Returns a dict with individual boolean flags plus human-readable
     `reasons` for any failure, so callers (CLI output, dashboard) can
@@ -154,16 +173,35 @@ def evaluate_quality_gate(
     low_n = n < min_n
     high_error_rate = error_rate > max_error_rate
 
+    # Cost significance: the default metric for paid/cloud providers.
     ci_low = delta.get("cost_delta_ci_low_usd")
     ci_high = delta.get("cost_delta_ci_high_usd")
     if ci_low is not None and ci_high is not None:
-        has_ci = True
-        significant = not (ci_low <= 0 <= ci_high)
+        has_cost_ci = True
+        cost_significant = not (ci_low <= 0 <= ci_high)
     else:
-        has_ci = False
-        significant = False
+        has_cost_ci = False
+        cost_significant = False
+
+    # Token and latency significance: used for local/self-hosted providers
+    # where cost is identically zero. Significant *increase* is as "verified"
+    # as a decrease; it simply isn't a win.
+    tk_low = delta.get("prompt_tokens_delta_ci_low")
+    tk_high = delta.get("prompt_tokens_delta_ci_high")
+    if tk_low is not None and tk_high is not None:
+        token_significant = not (tk_low <= 0 <= tk_high)
+    else:
+        token_significant = False
+
+    lat_low = delta.get("latency_ms_p50_delta_ci_low")
+    lat_high = delta.get("latency_ms_p50_delta_ci_high")
+    if lat_low is not None and lat_high is not None:
+        latency_significant = not (lat_low <= 0 <= lat_high)
+    else:
+        latency_significant = False
 
     marker_dropped = cache_marker_dropped(provider, model)
+    local_provider = is_local_provider(provider)
 
     reasons: list[str] = []
     if low_n:
@@ -175,15 +213,56 @@ def evaluate_quality_gate(
         )
     if high_error_rate:
         reasons.append(f"error_rate={error_rate:.0%} > max_error_rate={max_error_rate:.0%}")
-    if not has_ci:
-        reasons.append("no confidence interval available (too few paired samples or legacy summary format)")
-    elif not significant:
-        reasons.append(f"cost delta 95% CI [{ci_low:+.6f}, {ci_high:+.6f}] includes zero")
+
+    if local_provider:
+        if not (token_significant or latency_significant):
+            if tk_low is not None and lat_low is not None:
+                reasons.append(
+                    f"local provider: token Δ 95% CI [{tk_low:+.1f}, {tk_high:+.1f}] "
+                    f"and latency Δ 95% CI [{lat_low:+.1f}, {lat_high:+.1f}] both include zero"
+                )
+            elif tk_low is not None:
+                reasons.append(
+                    f"local provider: token Δ 95% CI [{tk_low:+.1f}, {tk_high:+.1f}] includes zero; "
+                    f"no latency CI available"
+                )
+            elif lat_low is not None:
+                reasons.append(
+                    f"local provider: latency Δ 95% CI [{lat_low:+.1f}, {lat_high:+.1f}] includes zero; "
+                    f"no token CI available"
+                )
+            else:
+                reasons.append(
+                    "local provider: no token or latency confidence interval available"
+                )
+        else:
+            if token_significant:
+                reasons.append(
+                    f"local provider verified on token Δ 95% CI "
+                    f"[{tk_low:+.1f}, {tk_high:+.1f}]"
+                )
+            if latency_significant:
+                reasons.append(
+                    f"local provider verified on latency Δ 95% CI "
+                    f"[{lat_low:+.1f}, {lat_high:+.1f}]"
+                )
+    else:
+        if not has_cost_ci:
+            reasons.append("no confidence interval available (too few paired samples or legacy summary format)")
+        elif not cost_significant:
+            reasons.append(f"cost delta 95% CI [{ci_low:+.6f}, {ci_high:+.6f}] includes zero")
+
     if marker_dropped:
         reasons.append(
             f"provider {provider!r} is known to drop the cache marker for "
             f"{model!r} — cache_hit_rate is not measurable on this path"
         )
+
+    significant = (
+        (token_significant or latency_significant)
+        if local_provider
+        else cost_significant
+    )
 
     # `marker_dropped` and detected auth errors both block `verified`: a
     # cache marker that structurally can't survive means any cost delta
@@ -205,9 +284,14 @@ def evaluate_quality_gate(
         "low_n": low_n,
         "high_error_rate": high_error_rate,
         "has_auth_errors": has_auth_errors,
-        "has_ci": has_ci,
+        "has_ci": has_cost_ci,
+        "cost_significant": cost_significant,
+        "token_significant": token_significant,
+        "latency_significant": latency_significant,
+        "local_provider": local_provider,
         "significant": significant,
         "cache_marker_dropped": marker_dropped,
         "verified": verified,
         "reasons": reasons,
     }
+
