@@ -457,6 +457,37 @@ def _render_eval_report(report: dict) -> None:
 
 
 @main.command()
+@click.option("--limit", default=20, help="Number of recent access decisions to show")
+@click.option("--principal", default=None, help="Filter to a specific principal id")
+@click.option("--db", type=click.Path(), default=None, help="Custom DB path")
+def audit(limit: int, principal: str | None, db: str | None) -> None:
+    """Show recent access-control decisions from the local audit log."""
+    logger = Logger(Path(db) if db else None)
+    rows = logger.audit_query(principal_id=principal, limit=limit)
+
+    table = Table(title=f"Last {len(rows)} access decisions")
+    table.add_column("Timestamp", style="dim")
+    table.add_column("Principal")
+    table.add_column("Call ID", justify="right")
+    table.add_column("Section")
+    table.add_column("Action")
+    table.add_column("Reason")
+    table.add_column("Content Hash", style="dim")
+
+    for r in rows:
+        table.add_row(
+            r["timestamp"],
+            r["principal_id"],
+            str(r["call_id"]) if r["call_id"] is not None else "-",
+            r["section"],
+            r["action"],
+            r["reason"] or "-",
+            r["content_hash"][:16] + "...",
+        )
+    console.print(table)
+
+
+@main.command()
 @click.option("--db", type=click.Path(), default=None, help="Custom DB path")
 @click.confirmation_option(prompt="Are you sure you want to delete all logs?")
 def reset(db: str | None) -> None:

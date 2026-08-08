@@ -90,7 +90,7 @@ Estimated impact on a typical workload:
 | **Local SQLite logger** | Every LLM call goes to `~/.contextops/calls.db`. Zero cloud. |
 | **Dataset loaders** | `.json`, `.jsonl`, `.csv` golden QA datasets. |
 | **RAG Curator** | Multi-signal filtering (similarity + recency + trust + dedup) of retrieved chunks before they reach the optimizer. |
-| **Rich CLI** | `optimize / curate / stats / recent / compare / eval / reset` with tables and progress bars. |
+| **Rich CLI** | `optimize / curate / stats / recent / audit / compare / eval / reset` with tables and progress bars. |
 | **LiteLLM auto-log (opt)** | One line to auto-log every litellm call. `pip install "contextops[integrations]"` |
 | **OpenAI SDK patch (opt)** | One line to reorder + log every `openai.OpenAI().chat.completions.create` call. |
 | **Public benchmark dashboard** | Auto-generated HTML dashboard from `bench/results/*.summary.json` (cache/cost) and `*.curator_summary.json` (RAG curator: token/quality impact). |
@@ -464,12 +464,14 @@ the prompt is optimized without it, and the decision is written to the local
 SQLite audit log (`access_audit` table) with a content hash only — never the raw
 text.
 
+Then run `contextops audit` to inspect the decisions, or `contextops audit --principal alice` to filter by caller.
+
 For library use, see `contextops.access.apply_access_policy()` and
 `contextops.logger.Logger.log_access()`.
 
 ---
 
-## �🗺️ Roadmap
+## ��️ Roadmap
 
 - ✅ **v0.1** — reorder, token count, SQLite logger, CLI
 - ✅ **v0.2** — LLM-as-judge eval + A/B testing + dataset loaders
